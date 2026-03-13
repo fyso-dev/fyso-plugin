@@ -54,15 +54,13 @@ bunx @fyso/claude-plugin install
 
 ## Setup
 
-### 1. Set API Key
-
-```bash
-export FYSO_API_KEY="fyso_ak_your_key_here"
-```
-
-### 2. Restart Claude Code
+### 1. Restart Claude Code
 
 After installing, restart Claude Code. Skills are available with `/fyso:` prefix.
+
+### 2. Connect your Fyso account
+
+On first use, the MCP server will open an OAuth flow to connect your Fyso account. No API key needed — authentication is handled automatically.
 
 ## Available Skills
 
@@ -151,7 +149,7 @@ fyso-plugin sync          # Regenerate FYSO-REFERENCE.md
 ## Requirements
 
 - [Claude Code](https://claude.ai/code) v1.0.33+
-- Fyso API key from [fyso.dev](https://fyso.dev)
+- Fyso account at [fyso.dev](https://fyso.dev)
 
 ## License
 
