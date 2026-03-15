@@ -14,7 +14,7 @@
       "name": "fyso",
       "source": "./",
       "description": "Build complete business apps from conversation. 21 skills, 5 agents, and auto-synced reference docs for the Fyso platform.",
-      "version": "1.18.0",
+      "version": "1.33.1",
       "author": { "name": "Fyso" },
       "homepage": "https://fyso.dev",
       "repository": "https://github.com/fyso-dev/claude-plugin",

@@ -9,7 +9,7 @@ Build complete business apps from conversation. This plugin extends Claude Code 
 | **Skills** | 21 | Slash commands (`/fyso:plan`, `/fyso:build`, `/fyso:ui`, etc.) |
 | **Agents** | 5 | Specialized AI agents (architect, designer, builder, verifier, ui-architect) |
 | **Reference** | 3-tier | Auto-synced docs: CLAUDE.md (always loaded) → FYSO-REFERENCE.md (1 read) → deep dives |
-| **MCP** | 1 | Fyso MCP server for metadata operations |
+| **MCP** | 10 | Fyso MCP server: 10 grouped tools with 80+ actions |
 | **Hooks** | 1 | Auto-sync reference when docs change |
 
 ## Installation
@@ -146,6 +146,25 @@ fyso-plugin status        # Check what's installed
 fyso-plugin uninstall     # Remove everything
 fyso-plugin sync          # Regenerate FYSO-REFERENCE.md
 ```
+
+## MCP Tools (v1.33)
+
+The plugin connects to Fyso's MCP server via OAuth. Ten grouped tools are exposed:
+
+| Tool | Actions | Purpose |
+|------|---------|---------|
+| `fyso_data` | 6 | Records CRUD, bookings, scheduling |
+| `fyso_schema` | 11 | Entities, fields, presets (new: `install_preset`, `list_presets`) |
+| `fyso_rules` | 7 | Business rules with DSL, testing, logs |
+| `fyso_auth` | 13 | Users, roles, tenants, invitations |
+| `fyso_views` | 4 | Filtered entity views |
+| `fyso_knowledge` | 3 | Knowledge base search, docs search |
+| `fyso_deploy` | 5 | Static sites, custom domains, CI/CD tokens |
+| `fyso_meta` | 8 | API docs, metadata, secrets, usage, feedback |
+| `fyso_agents` | 11 | AI agents: create, run, version, templates (NEW) |
+| `fyso_ai` | 10 | Multi-provider AI, prompt templates, call logs (NEW) |
+
+See `FYSO-REFERENCE.md` section 2 for complete parameter reference.
 
 ## Requirements
 
