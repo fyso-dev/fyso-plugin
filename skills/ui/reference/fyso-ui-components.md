@@ -58,7 +58,8 @@ const client = useFysoClient()
 const { data } = await client.records.list('pacientes', {
   page: '1', limit: '20', sort: 'name', order: 'asc'
 })
-// data.data: Record[], data.total, data.page, data.totalPages
+// data.items: Record[], data.total, data.page, data.totalPages
+// Each Record is flat: { id, fieldKey, createdAt, ... } — NOT nested under .data
 
 // Get one record
 const record = await client.records.get('pacientes', recordId)
@@ -237,7 +238,7 @@ export function PacientesList() {
       sort,
       order,
     }).then(({ data }) => {
-      setRecords(data.data)
+      setRecords(data.items)  // v1.26.0+: data.items (not data.data)
       setPagination(data)
     })
   }, [entity, pagination.page, sort, order])

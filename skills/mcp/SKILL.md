@@ -6,39 +6,77 @@ disable-model-invocation: true
 allowed-tools: Bash(cat *), Bash(echo *), Bash(mkdir *)
 ---
 
-# Configuración MCP - Fyso
+# Configuracion MCP - Fyso
 
 Configura tu cliente Claude para usar las herramientas MCP de Fyso.
 
-## ¿Qué es MCP?
+## Que es MCP?
 
 Model Context Protocol (MCP) permite que Claude acceda a herramientas externas. Con Fyso MCP puedes:
 
-- Crear y gestionar entidades
-- Crear reglas de negocio
-- Consultar y modificar datos
-- Ejecutar tests
+- Crear y gestionar entidades, campos y presets de industria
+- Crear reglas de negocio con DSL
+- Consultar y modificar datos con filtros y busqueda semantica
+- Gestionar usuarios, roles e invitaciones
+- Crear y ejecutar agentes de IA con versionado de prompts
+- Configurar proveedores de IA multi-provider y templates de prompts
+- Administrar knowledge base y documentos
+- Desplegar sitios estaticos con dominios custom
+- Importar/exportar metadata, gestionar secretos y ver metricas de uso
 
-## Configuración
+## Herramientas MCP (v1.33)
 
-### Para Claude Desktop
+Fyso expone **10 herramientas agrupadas** via MCP. Cada una acepta un parametro `action` que selecciona la operacion:
 
-1. **Ubicar archivo de configuración:**
+| Tool | Actions | Description |
+|------|---------|-------------|
+| `fyso_data` | create, query, update, delete, create_booking, get_slots | CRUD de registros y turnos |
+| `fyso_schema` | list, get, add_field, generate, publish, discard, delete, list_changes, install_preset, list_presets | Entidades, campos y presets de industria |
+| `fyso_rules` | create, get, list, publish, delete, test, logs | Reglas de negocio: crear, testear, publicar |
+| `fyso_auth` | create_user, list_users, update_password, create_role, list_roles, assign_role, revoke_role, login, list_tenants, select_tenant, create_tenant, generate_invitation, list_invitations | Usuarios, roles, tenants, invitaciones |
+| `fyso_views` | create, list, update, delete | Vistas filtradas de entidades |
+| `fyso_knowledge` | search, stats, search_docs | Knowledge base y documentacion |
+| `fyso_deploy` | deploy, list, delete, set_domain, generate_token | Sitios estaticos, dominios, tokens CI/CD |
+| `fyso_meta` | api_spec, api_client, export, import, usage, set_secret, delete_secret, feedback | API docs, metadata, secretos, metricas, feedback |
+| `fyso_agents` | list, create, update, delete, run, test, list_runs, list_versions, rollback, list_templates, from_template | Agentes de IA con versionado y templates |
+| `fyso_ai` | configure_provider, list_providers, add_provider, remove_provider, test_call, call_logs, debug_log, create_template, list_templates, update_template | Proveedores de IA, logs, templates de prompts |
 
-   - macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
-   - Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+Ademas: `fyso_welcome` (onboarding interactivo).
 
-2. **Agregar configuración de Fyso:**
+## Configuracion
+
+### Para Claude Code (Recomendado — OAuth automatico)
+
+El plugin incluye `.mcp.json` que conecta via OAuth:
 
 ```json
 {
   "mcpServers": {
     "fyso": {
-      "command": "bun",
-      "args": ["run", "/path/to/fyso/packages/mcp-server/src/index.ts"],
-      "env": {
-        "API_URL": "http://localhost:3001"
-      }
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://app.fyso.dev/mcp"]
+    }
+  }
+}
+```
+
+Al usar cualquier herramienta por primera vez, se abre un flujo OAuth para autenticar tu cuenta Fyso. No necesitas API key.
+
+### Para Claude Desktop
+
+1. **Ubicar archivo de configuracion:**
+
+   - macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+   - Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+
+2. **Agregar configuracion de Fyso:**
+
+```json
+{
+  "mcpServers": {
+    "fyso": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://app.fyso.dev/mcp"]
     }
   }
 }
@@ -46,15 +84,7 @@ Model Context Protocol (MCP) permite que Claude acceda a herramientas externas. 
 
 3. **Reiniciar Claude Desktop**
 
-### Para Claude Code
-
-1. **Crear/editar configuración MCP:**
-
-```bash
-mkdir -p ~/.claude
-```
-
-2. **Agregar a `~/.claude/settings.json`:**
+### Local Development (opcional)
 
 ```json
 {
@@ -70,65 +100,26 @@ mkdir -p ~/.claude
 }
 ```
 
-### Opción HTTP (Alternativa)
-
-Si prefieres conectar via HTTP:
-
-1. **Iniciar servidor MCP:**
-
-```bash
-cd /path/to/fyso/packages/mcp-server
-bun run start:http
-```
-
-2. **Configurar cliente:**
-
-```json
-{
-  "mcpServers": {
-    "fyso": {
-      "url": "http://localhost:3002/mcp",
-      "transport": "sse"
-    }
-  }
-}
-```
-
-## Verificar Conexión
+## Verificar Conexion
 
 ### 1. Ver herramientas disponibles
 
 Pregunta a Claude:
 ```
-¿Qué herramientas de Fyso tienes disponibles?
+Que herramientas de Fyso tienes disponibles?
 ```
 
-Debería listar 16 herramientas:
-- `generate_entity`
-- `list_entities`
-- `get_entity_schema`
-- `query_records`
-- `create_record`
-- `update_record`
-- `delete_record`
-- `publish_entity`
-- `list_entity_changes`
-- `generate_business_rule`
-- `create_business_rule`
-- `list_business_rules`
-- `get_business_rule`
-- `test_business_rule`
-- `publish_business_rule`
-- `delete_business_rule`
+Deberia listar 10 herramientas agrupadas:
+- `fyso_data`, `fyso_schema`, `fyso_rules`, `fyso_auth`, `fyso_views`
+- `fyso_knowledge`, `fyso_deploy`, `fyso_meta`, `fyso_agents`, `fyso_ai`
 
 ### 2. Probar una herramienta
 
-Pregunta a Claude:
 ```
 Lista las entidades disponibles en Fyso
 ```
 
-Debería ejecutar `list_entities` y mostrar las entidades existentes.
+Deberia ejecutar `fyso_schema({ action: "list" })` y mostrar las entidades existentes.
 
 ### 3. Test completo
 
@@ -140,85 +131,14 @@ Crea una entidad de prueba llamada "Test" con un campo "nombre"
 
 ### Error: "MCP server not found"
 
-1. Verificar que el servidor esté corriendo:
-```bash
-curl http://localhost:3002/mcp/health
-```
-
-2. Verificar la ruta en la configuración
-
-3. Verificar que Bun esté instalado:
-```bash
-bun --version
-```
-
-### Error: "Connection refused"
-
-1. Iniciar el servidor:
-```bash
-cd /path/to/fyso
-bun run dev:mcp
-```
-
-2. Verificar puerto no ocupado:
-```bash
-lsof -i :3002
-```
+1. Verificar que `npx` este instalado: `npx --version`
+2. Verificar conexion: `curl https://app.fyso.dev/mcp/health`
 
 ### Error: "Authentication failed"
 
-1. Verificar API_URL en variables de entorno
-2. Verificar que la API esté corriendo en ese puerto
+1. Reiniciar Claude Code para repetir el flujo OAuth
+2. Verificar que tu cuenta Fyso este activa en [fyso.dev](https://fyso.dev)
 
-## Configuración Avanzada
+### Error: "Unknown action"
 
-### Con autenticación
-
-```json
-{
-  "mcpServers": {
-    "fyso": {
-      "url": "http://localhost:3002/mcp",
-      "transport": "sse",
-      "headers": {
-        "Authorization": "Bearer <token>"
-      }
-    }
-  }
-}
-```
-
-### Múltiples proyectos
-
-```json
-{
-  "mcpServers": {
-    "fyso-tienda": {
-      "command": "bun",
-      "args": ["run", "~/tienda/packages/mcp-server/src/index.ts"]
-    },
-    "fyso-restaurante": {
-      "command": "bun",
-      "args": ["run", "~/restaurante/packages/mcp-server/src/index.ts"]
-    }
-  }
-}
-```
-
-## Resultado Esperado
-
-```
-✅ MCP Configurado
-═══════════════════════════════════════
-
-Servidor: http://localhost:3002/mcp
-Estado: Conectado
-Herramientas: 16 disponibles
-
-Puedes empezar a usar comandos como:
-- "Crea una entidad Productos"
-- "Lista las reglas de Facturas"
-- "Consulta todos los clientes"
-
-¡Tu ERP está listo para usar con Claude!
-```
+Verificar que la accion sea valida para la herramienta. Cada herramienta tiene un `action` enum — usar acciones exactas listadas arriba.
