@@ -30,49 +30,55 @@ const SECTIONS = [
   {
     number: 1,
     title: "Field Types",
-    source: "skills/fyso-entity/reference/field-types.md",
+    source: "skills/entity/reference/field-types.md",
     extract: extractFieldTypes,
   },
   {
     number: 2,
     title: "MCP Operations",
-    source: "skills/fyso-plan/reference/mcp-operations.md",
+    source: "skills/plan/reference/mcp-operations.md",
     extract: extractMCPOps,
   },
   {
     number: 3,
-    title: "Business Rules DSL",
-    source: "skills/fyso-rules/reference/dsl-reference.md",
-    extract: extractDSL,
+    title: "REST API Reference",
+    source: "skills/ui/reference/auth-patterns.md",
+    extract: extractRESTAPI,
   },
   {
     number: 4,
-    title: "Limitations",
-    source: "skills/fyso-plan/reference/limitations.md",
-    extract: extractLimitations,
+    title: "Business Rules DSL",
+    source: "skills/rules/reference/dsl-reference.md",
+    extract: extractDSL,
   },
   {
     number: 5,
-    title: "Domain Patterns",
-    source: "skills/fyso-plan/reference/domain-patterns.md",
-    extract: extractDomainPatterns,
+    title: "Limitations",
+    source: "skills/plan/reference/limitations.md",
+    extract: extractLimitations,
   },
   {
     number: 6,
-    title: "Auth & Roles",
-    source: "skills/fyso-ui/reference/auth-patterns.md",
-    extract: extractAuth,
+    title: "Domain Patterns",
+    source: "skills/plan/reference/domain-patterns.md",
+    extract: extractDomainPatterns,
   },
   {
     number: 7,
-    title: "UI Components (@fyso/ui)",
-    source: "skills/fyso-ui/reference/fyso-ui-components.md",
-    extract: extractUIComponents,
+    title: "Auth & Roles",
+    source: "skills/ui/reference/auth-patterns.md",
+    extract: extractAuth,
   },
   {
     number: 8,
+    title: "UI Components (@fyso/ui)",
+    source: "skills/ui/reference/fyso-ui-components.md",
+    extract: extractUIComponents,
+  },
+  {
+    number: 9,
     title: "UI Patterns",
-    source: "skills/fyso-ui/reference/ui-patterns.md",
+    source: "skills/ui/reference/ui-patterns.md",
     extract: extractUIPatterns,
   },
 ];
@@ -98,51 +104,212 @@ function extractFieldTypes(content: string): string {
 }
 
 function extractMCPOps(content: string): string {
-  return `### Tenant
+  return `Fyso exposes **10 grouped MCP tools**. Each tool uses an \`action\` parameter to select the operation.
+
+### fyso_auth — Tenants & Users
 \`\`\`
-select_tenant({ tenantSlug: "slug" })     # ALWAYS first
-list_tenants()
+fyso_auth({ action: "select_tenant", tenantSlug: "slug" })     # ALWAYS first
+fyso_auth({ action: "list_tenants" })
+fyso_auth({ action: "create_tenant", name: "My App", description: "..." })
+fyso_auth({ action: "create_user", email, name, password, role })
+fyso_auth({ action: "list_users" })
+fyso_auth({ action: "update_password", userId, password })
+fyso_auth({ action: "create_role", name, permissions, description })
+fyso_auth({ action: "list_roles" })
+fyso_auth({ action: "assign_role", userId, roleId })
+fyso_auth({ action: "revoke_role", userId, roleId })
+fyso_auth({ action: "login", tenantSlug, email, password })
+fyso_auth({ action: "generate_invitation", note?, maxUses?, expiresAt? })
+fyso_auth({ action: "list_invitations" })
 \`\`\`
 
-### Entities
+### fyso_schema — Entities & Presets
 \`\`\`
-generate_entity({ definition: { entity: { name, displayName, description }, fields: [...] }, auto_publish: false })
-list_entities({ include_drafts: true })
-get_entity_schema({ entityName: "..." })
-publish_entity({ entityName: "...", version_message: "..." })
-\`\`\`
-
-### Business Rules
-\`\`\`
-create_business_rule({ entityName, name, description, triggerType, triggerFields, ruleDsl: { compute, validate, transform }, auto_publish: false })
-generate_business_rule({ entityName, prompt, auto_publish: false })
-test_business_rule({ entityName, ruleId, testContext: { field: value } })
-publish_business_rule({ entityName, ruleId })
-list_business_rules({ entityName })
-delete_business_rule({ entityName, ruleId })
+fyso_schema({ action: "generate", definition: { entity: { name, displayName, description }, fields: [...] }, auto_publish: false })
+fyso_schema({ action: "list", include_drafts: true })
+fyso_schema({ action: "get", entityName: "...", version?: "draft"|"published"|number })
+fyso_schema({ action: "add_field", entityName, name, fieldKey, fieldType, ... })
+fyso_schema({ action: "publish", entityName: "...", version_message: "..." })
+fyso_schema({ action: "discard", entityName })
+fyso_schema({ action: "delete", entityName, confirm: true })
+fyso_schema({ action: "list_changes", include_published? })
+fyso_schema({ action: "list_presets" })                    # available industry presets
+fyso_schema({ action: "install_preset", preset_name })     # install complete preset (taller, tienda, clinica, freelancer)
 \`\`\`
 
-### Records
+### fyso_rules — Business Rules
 \`\`\`
-create_record({ entityName, data: { field: value } })
-query_records({ entityName, limit, page, sort, order, filters: { field: value } })
-update_record({ entityName, id, data: { field: newValue } })
-delete_record({ entityName, id })
-\`\`\`
-
-### Channels
-\`\`\`
-publish_channel({ name, description, tags })
-define_channel_tool({ channelId, toolName, description, parameters, entityMapping: { entity, operation } })
-set_channel_permissions({ channelId, config: { public, allowedOperations } })
-execute_channel_tool({ channelId, toolName, params })
+fyso_rules({ action: "create", entityName, name, description, triggerType, triggerFields, ruleDsl: { compute, validate, transform }, priority?, auto_publish? })
+fyso_rules({ action: "get", entityName, ruleId })
+fyso_rules({ action: "list", entityName, include_drafts? })
+fyso_rules({ action: "test", entityName, ruleId, testData: { field: value } })
+fyso_rules({ action: "publish", entityName, ruleId })
+fyso_rules({ action: "delete", entityName, ruleId })
+fyso_rules({ action: "logs", entityName, ruleId, limit? })
 \`\`\`
 
-### Metadata
+### fyso_data — Records & Bookings
 \`\`\`
-export_metadata({ tenantId })     # JSON snapshot of all entities/rules
-import_metadata({ metadata, tenantId })
+fyso_data({ action: "create", entity, data: { field: value } })
+fyso_data({ action: "query", entity, filters?, sort?, order_dir?, limit?, offset?, semantic?, min_similarity?, resolve_depth? })
+fyso_data({ action: "update", entity, id, data: { field: newValue } })
+fyso_data({ action: "delete", entity, id })
+fyso_data({ action: "create_booking", professional_id, patient_id, date, time, duration, notes? })
+fyso_data({ action: "get_slots", professional_id, date?, from?, to? })
+\`\`\`
+
+### fyso_views — Entity Views
+\`\`\`
+fyso_views({ action: "create", entitySlug, slug, name, description?, filterDsl? })
+fyso_views({ action: "list" })
+fyso_views({ action: "update", slug, name?, description?, filterDsl?, isActive? })
+fyso_views({ action: "delete", slug })
+\`\`\`
+
+### fyso_knowledge — Knowledge Base
+\`\`\`
+fyso_knowledge({ action: "search", query, limit?, threshold?, document_ids?, one_per_document?, metadata_filter? })
+fyso_knowledge({ action: "stats" })
+fyso_knowledge({ action: "search_docs", query, topic?, limit? })
+\`\`\`
+
+### fyso_deploy — Static Sites
+\`\`\`
+fyso_deploy({ action: "deploy", subdomain, path?, bundle_base64? })
+fyso_deploy({ action: "list" })
+fyso_deploy({ action: "delete", subdomain })
+fyso_deploy({ action: "set_domain", subdomain, domain, domain_action?: "add"|"verify"|"status"|"remove" })
+fyso_deploy({ action: "generate_token", subdomain, name?, expires_in_days?, framework? })
+\`\`\`
+
+### fyso_meta — API, Metadata, Secrets, Usage, Feedback
+\`\`\`
+fyso_meta({ action: "api_spec", entities?, includeExamples? })
+fyso_meta({ action: "api_client", entities?, format?, framework? })
+fyso_meta({ action: "export", tenantId? })
+fyso_meta({ action: "import", tenantId?, data })
+fyso_meta({ action: "usage" })
+fyso_meta({ action: "set_secret", key, value })
+fyso_meta({ action: "delete_secret", key })
+fyso_meta({ action: "feedback", feedback_type, title, description?, context? })
+\`\`\`
+
+### fyso_agents — AI Agents
+\`\`\`
+fyso_agents({ action: "list" })
+fyso_agents({ action: "create", name, system_prompt, fallback_mode?, tools_scope?, knowledge_enabled? })
+fyso_agents({ action: "update", id?, slug?, name?, system_prompt?, fallback_mode?, tools_scope?, knowledge_enabled? })
+fyso_agents({ action: "delete", slug })
+fyso_agents({ action: "run", agent_slug, message, session_id? })
+fyso_agents({ action: "test", agent_slug, message })
+fyso_agents({ action: "list_runs", agent_id?, session_id?, status?, date_from?, date_to?, limit? })
+fyso_agents({ action: "list_versions", agent_id })
+fyso_agents({ action: "rollback", agent_id, version })
+fyso_agents({ action: "list_templates" })
+fyso_agents({ action: "from_template", template_id, name?, description? })
+\`\`\`
+
+### fyso_ai — AI Providers & Templates
+\`\`\`
+fyso_ai({ action: "configure_provider", name, type, base_url, api_key, default_model })
+fyso_ai({ action: "list_providers" })
+fyso_ai({ action: "add_provider", name, base_url, api_key, default_model, is_active? })
+fyso_ai({ action: "remove_provider", provider_id })
+fyso_ai({ action: "test_call", prompt, system_prompt?, model?, max_tokens?, temperature? })
+fyso_ai({ action: "call_logs", provider?, model?, status?, date_from?, date_to?, source_type?, source_id?, limit?, offset? })
+fyso_ai({ action: "debug_log", log_id })
+fyso_ai({ action: "create_template", name, slug, type: "prompt"|"system", content, variables? })
+fyso_ai({ action: "list_templates" })
+fyso_ai({ action: "update_template", id, name?, slug?, type?, content?, variables? })
 \`\`\``;
+}
+
+function extractRESTAPI(_content: string): string {
+  return `### Base URL
+\`\`\`
+https://app.fyso.dev/api
+\`\`\`
+
+### Headers (every request)
+\`\`\`
+X-API-Key: {admin_api_key or user_session_token}
+X-Tenant-ID: {tenant_slug}
+\`\`\`
+
+### CRUD Endpoints
+\`\`\`
+GET    /api/entities/{entity}/records          # List (paginated)
+GET    /api/entities/{entity}/records/:id      # Single record
+POST   /api/entities/{entity}/records          # Create
+PUT    /api/entities/{entity}/records/:id      # Update
+DELETE /api/entities/{entity}/records/:id      # Delete
+\`\`\`
+
+### Query Parameters
+\`\`\`
+?limit=50              # max 200, default 50
+?page=1                # pagination
+?sort=createdAt        # field to sort by
+?order=desc            # asc or desc
+?filters=field = value              # single filter
+?filters=field = value AND other = x  # compound (AND only, no OR)
+?resolve_depth=1       # inline related objects (max 2, list endpoints only)
+\`\`\`
+
+### Filter Operators
+\`\`\`
+=, !=, >, <, >=, <=, contains
+Combine with AND (OR not supported server-side)
+\`\`\`
+
+### Response Envelope (v1.26.0+ flat format)
+\`\`\`json
+// List:
+{ "success": true, "data": { "items": [...], "total": 10, "page": 1, "limit": 50, "totalPages": 1 } }
+// Each item is flat: { "id": "...", "fieldKey": "value", "createdAt": "...", ... }
+
+// Single record:
+{ "success": true, "data": { "id": "...", "fieldKey": "value", ... } }
+
+// Error:
+{ "success": false, "error": { "code": "ERROR_CODE", "message": "..." } }
+\`\`\`
+
+### MCP vs REST Comparison
+| Aspect | MCP Tool | REST API |
+|--------|----------|----------|
+| Filters | \`filters: { field: "value" }\` (object) | \`?filters=field = value\` (string) |
+| Relation resolution | \`resolve_depth: 1\` (param) | \`?resolve_depth=1\` (query string) |
+| Response shape | Direct data | Wrapped in \`{ success, data }\` |
+| List items key | \`records\` array | \`data.items\` array |
+| Record fields | Flat | Flat (since v1.26.0) |
+| Tenant context | \`select_tenant()\` (session) | \`X-Tenant-ID\` header (per-request) |
+| Auth | OAuth session | \`X-API-Key\` header |
+
+### Auth Endpoints
+\`\`\`
+POST /api/auth/tenant/login    → { success, data: { token, user } }
+POST /api/auth/tenant/register → { success, data: { token, user } }
+GET  /api/auth/tenant/me       → { success, data: { user } }
+POST /api/auth/tenant/logout
+\`\`\`
+
+### WebSocket (v1.28.0+)
+\`\`\`
+ws://app.fyso.dev/ws?token={api_key}&tenantId={slug}
+
+// Subscribe:
+{ "type": "subscribe", "entityId": "uuid" }
+
+// Events received:
+{ "type": "record_created|record_updated|record_deleted", "entityId": "...", "record": {...} }
+\`\`\`
+Per-entity toggle: \`realtimeEnabled\` in entity metadata.
+
+### resolve_depth behavior
+- Only works on list endpoints (GET /records), NOT on single record (GET /records/:id)
+- Max depth: 2
+- Transforms relation fields from UUID strings to full objects`;
 }
 
 function extractDSL(content: string): string {
@@ -196,8 +363,13 @@ function extractLimitations(content: string): string {
 | 4 | Channel slugs globally non-reusable once deleted | Medium | Choose names carefully, don't use temp names |
 | 5 | Published entities with data resist schema changes | High | Design all fields before publishing |
 | 6 | Compute chains must be in correct order | Medium | Order compute fields by dependency in DSL |
-| 7 | \`generate_entity\` creates all fields at once (no individual create_field) | Low | Use full field list in generate_entity |
+| 7 | \`fyso_schema\` \`generate\` creates all fields at once; use \`add_field\` for individual additions | Low | \`generate\` for new entities, \`add_field\` for additions |
 | 8 | DSL: no string interpolation, limited date math, no arrays, no API calls | Low | Keep expressions simple, use multiple rules |
+| 9 | \`deploy\` response \`url\` field is wrong — returns \`{slug}.fyso.dev\` without \`-sites\` | High | Always use \`{slug}-sites.fyso.dev\` as the real URL |
+| 10 | Fyso static hosting ignores \`_redirects\` — BrowserRouter SPA routes 404 on direct access | High | Use Astro (generates per-route index.html) or HashRouter for SPAs |
+| 11 | OR filters not supported server-side | Medium | Client-side filter for OR conditions |
+| 12 | resolve_depth only on list endpoints | Low | Separate GET /records/:id call per related entity |
+| 13 | No aggregation queries (SUM, COUNT, AVG) | Medium | Fetch all records + compute client-side |
 
 **Things that work fine:** Multiple entity creation, rules after publish, relations, query_records, metadata import/export.`;
 }
@@ -294,9 +466,10 @@ useFysoClient()           → client (records.list/get/create/update/delete)
 useFyso()                 → { client, translations, entityCache }
 \`\`\`
 
-### Record Data Shape
+### Record Data Shape (v1.26.0+ flat format)
 \`\`\`
-record.data.{fieldKey}    # NOT record.{fieldKey}
+record.{fieldKey}         # Flat — fields directly on record object
+record.data.{fieldKey}    # WRONG — no longer nested under .data
 \`\`\``;
 }
 
