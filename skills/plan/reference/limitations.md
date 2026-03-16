@@ -164,6 +164,24 @@ Fyso has no server-side aggregation. There are no SUM, COUNT, AVG, GROUP BY quer
 
 **Workaround:** Fetch all relevant records (using pagination if needed) and compute aggregations client-side.
 
+### 14. Agent REST endpoint returns 401 with user tokens
+
+**Impact:** High
+**Affects:** Calling `/api/agents/{slug}/run` from client-side code
+
+The agent REST endpoint is not accessible with user session tokens. Requests return 401 regardless of role.
+
+**Workaround:** Use MCP `fyso_agents({ action: "run" })` instead. For client-side use, route through a backend proxy that calls the MCP tool server-side.
+
+### 15. `contains` filter behavior undocumented
+
+**Impact:** Medium
+**Affects:** Text search queries using `contains` operator
+
+The `contains` operator is accepted by the query engine but its case sensitivity, partial-match behavior, and Unicode handling are not formally documented.
+
+**Workaround:** Test with your data; case sensitivity varies. For reliable text search, consider using semantic search or fetching all records and filtering client-side.
+
 ## Non-Issues (Things That Work Fine)
 
 - Creating multiple entities in sequence — works reliably

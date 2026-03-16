@@ -272,6 +272,10 @@ fyso_data({
 })
 ```
 
+Filter operators: =, !=, >, <, >=, <=, contains
+Compound: AND only (OR not supported server-side)
+Example: fyso_data({ action: "query", entity: "productos", filters: "nombre contains cafe" })
+
 ### update
 Update a record.
 ```
