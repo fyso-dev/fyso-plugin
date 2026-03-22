@@ -1,7 +1,7 @@
 {
   "name": "fyso",
-  "version": "1.33.1",
-  "description": "Build complete business apps from conversation. 21 skills, 5 agents, hooks, and auto-synced reference docs for the Fyso platform.",
+  "version": "1.34.0",
+  "description": "Build complete business apps from conversation. 22 skills, 5 agents, hooks, and auto-synced reference docs for the Fyso platform.",
   "author": {
     "name": "Fyso",
     "email": "hello@fyso.dev"
