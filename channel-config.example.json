@@ -1,0 +1,16 @@
+{
+  "_comment": "Add the fyso-channel server to your .mcp.json to enable /fyso:listen channel support.",
+  "_usage": "claude --dangerously-load-development-channels server:fyso-channel",
+  "mcpServers": {
+    "fyso-channel": {
+      "command": "bun",
+      "args": ["<path-to-fyso-plugin>/packages/mcp-server/src/channel-server.ts"],
+      "env": {
+        "FYSO_API_URL": "https://app.fyso.dev",
+        "FYSO_TENANT_SLUG": "<your-tenant-slug>",
+        "FYSO_API_KEY": "<your-api-key-or-jwt>",
+        "FYSO_ENTITIES": ""
+      }
+    }
+  }
+}
