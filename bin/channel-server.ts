@@ -16,6 +16,10 @@
  */
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import {
+  CallToolRequestSchema,
+  ListToolsRequestSchema,
+} from '@modelcontextprotocol/sdk/types.js';
 
 // ---------------------------------------------------------------------------
 // Config
@@ -25,17 +29,63 @@ const API_URL = (process.env.FYSO_API_URL ?? 'https://api.fyso.dev').replace(/\/
 const TENANT_SLUG = process.env.FYSO_TENANT_SLUG ?? '';
 const API_KEY = process.env.FYSO_API_KEY ?? '';
 const ENTITIES = process.env.FYSO_ENTITIES ?? '';
+const EVENTS = process.env.FYSO_EVENTS ?? '';
 const AGENT_NAME = process.env.FYSO_AGENT_NAME ?? '';
 
-// Resolve agent_id: env var first, then .fyso-agent file
+// Sender gating (#17): only forward message.received from these agents. Empty = allow all.
+const ALLOWED_SENDERS_RAW = process.env.FYSO_ALLOWED_SENDERS ?? '';
+const ALLOWED_SENDERS: Set<string> | null = ALLOWED_SENDERS_RAW
+  ? new Set(ALLOWED_SENDERS_RAW.split(',').map((s) => s.trim()).filter(Boolean))
+  : null;
+
+// Resolve agent_id: env var → .fyso-agent file → auto-register
 let AGENT_ID = process.env.FYSO_AGENT_ID ?? '';
 
+// 1. Try .fyso-agent file
 if (!AGENT_ID) {
   try {
     const agentFile = await Bun.file(`${process.cwd()}/.fyso-agent`).text();
     const agentData = JSON.parse(agentFile);
     if (agentData.agent_id) AGENT_ID = agentData.agent_id;
   } catch {}
+}
+
+// 2. Auto-register if we have a name but no ID
+if (!AGENT_ID && AGENT_NAME && TENANT_SLUG && API_KEY) {
+  console.error(`[fyso-channel] No agent_id found. Auto-registering "${AGENT_NAME}"...`);
+  try {
+    const regRes = await fetch(`${API_URL}/api/v1/tenants/${TENANT_SLUG}/agents/register`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${API_KEY}`,
+      },
+      body: JSON.stringify({ agent_name: AGENT_NAME }),
+    });
+    if (regRes.ok) {
+      const regData = (await regRes.json()) as any;
+      const reg = regData.data ?? regData;
+      AGENT_ID = reg.agent_id;
+      // Write .fyso-agent for next time
+      const agentFile = {
+        agent_id: AGENT_ID,
+        agent_name: AGENT_NAME,
+        tenant: TENANT_SLUG,
+        registered_at: new Date().toISOString(),
+      };
+      try {
+        await Bun.write(`${process.cwd()}/.fyso-agent`, JSON.stringify(agentFile, null, 2) + '\n');
+        console.error(`[fyso-channel] Registered as ${AGENT_ID}, saved .fyso-agent`);
+      } catch {
+        console.error(`[fyso-channel] Registered as ${AGENT_ID} (could not write .fyso-agent)`);
+      }
+    } else {
+      const body = await regRes.text().catch(() => '');
+      console.error(`[fyso-channel] Registration failed (${regRes.status}): ${body}`);
+    }
+  } catch (err: any) {
+    console.error(`[fyso-channel] Registration error: ${err?.message}`);
+  }
 }
 
 console.error(`[fyso-channel] Agent: ${AGENT_ID || 'none (no messaging)'}, cwd: ${process.cwd()}`);
@@ -54,6 +104,7 @@ const mcp = new Server(
     capabilities: {
       // This key is what registers the notification listener in Claude Code
       experimental: { 'claude/channel': {} },
+      tools: {},
     },
     instructions: [
       'You are connected to the Fyso real-time event stream.',
@@ -89,6 +140,90 @@ const mcp = new Server(
     ].join('\n'),
   },
 );
+
+// ---------------------------------------------------------------------------
+// Reply Tool (#16)
+// ---------------------------------------------------------------------------
+
+const REPLY_TOOL = {
+  name: 'reply',
+  description:
+    'Send a message to another agent via the Fyso messaging system. ' +
+    'Use this to reply to incoming messages or initiate conversations.',
+  inputSchema: {
+    type: 'object' as const,
+    properties: {
+      to_agent: { type: 'string', description: 'Recipient agent name or slug' },
+      message: { type: 'string', description: 'Message text to send' },
+      in_reply_to: { type: 'string', description: 'UUID of the message being replied to (for threading)' },
+      subject: { type: 'string', description: 'Optional subject line' },
+      priority: { type: 'string', enum: ['normal', 'high', 'urgent'], description: 'Message priority (default: normal)' },
+    },
+    required: ['to_agent', 'message'],
+  },
+};
+
+mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
+  tools: [REPLY_TOOL],
+}));
+
+mcp.setRequestHandler(CallToolRequestSchema, async (request) => {
+  const { name, arguments: args } = request.params;
+
+  if (name !== 'reply') {
+    return {
+      content: [{ type: 'text', text: JSON.stringify({ error: `Unknown tool: ${name}` }) }],
+      isError: true,
+    };
+  }
+
+  const { to_agent, message, in_reply_to, subject, priority } = args as any;
+
+  if (!to_agent || !message) {
+    return {
+      content: [{ type: 'text', text: JSON.stringify({ error: '`to_agent` and `message` are required' }) }],
+      isError: true,
+    };
+  }
+
+  const body: Record<string, unknown> = {
+    from_agent: AGENT_NAME || 'mcp-caller',
+    to_agent,
+    payload: { message },
+  };
+  if (in_reply_to) body.in_reply_to = in_reply_to;
+  if (subject) body.subject = subject;
+  if (priority) body.priority = priority;
+
+  try {
+    const res = await fetch(`${API_URL}/api/tenants/${TENANT_SLUG}/agent-messages/send`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${API_KEY}` },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json() as any;
+
+    if (!res.ok || !data.success) {
+      return {
+        content: [{ type: 'text', text: JSON.stringify({ error: data.error ?? `HTTP ${res.status}` }) }],
+        isError: true,
+      };
+    }
+
+    const sent = data.data ?? data;
+    return {
+      content: [{
+        type: 'text',
+        text: JSON.stringify({ success: true, message_id: sent.id, to_agent: sent.to_agent, priority: sent.priority ?? 'normal' }),
+      }],
+    };
+  } catch (err: any) {
+    return {
+      content: [{ type: 'text', text: JSON.stringify({ error: err?.message ?? 'Unknown error' }) }],
+      isError: true,
+    };
+  }
+});
 
 // ---------------------------------------------------------------------------
 // SSE Client with auto-reconnect
@@ -157,6 +292,7 @@ function buildSseUrl(): string {
   const base = `${API_URL}/api/v1/tenants/${TENANT_SLUG}/events/stream`;
   const params = new URLSearchParams();
   if (ENTITIES) params.set('entities', ENTITIES);
+  if (EVENTS) params.set('events', EVENTS);
   if (AGENT_ID) params.set('agent_id', AGENT_ID);
   const qs = params.toString();
   return qs ? `${base}?${qs}` : base;
@@ -200,26 +336,38 @@ async function startSseBridge(): Promise<() => void> {
       const body = await response.text().catch(() => '');
       console.error(`[fyso-channel] SSE HTTP ${response.status}: ${body}`);
       if (response.status === 401 || response.status === 403) {
-        // Auth failure — no point retrying, surface a clear error channel message
         await mcp.notification({
           method: 'notifications/claude/channel',
           params: {
-            content: `Authentication failed (HTTP ${response.status}). Check FYSO_API_KEY and FYSO_TENANT_SLUG configuration.`,
+            content: `\u274c Auth failed (${response.status}). Check FYSO_API_KEY and FYSO_TENANT_SLUG.`,
             meta: { event_type: 'error', entity: 'channel', http_status: String(response.status) },
           },
         });
-        return; // stop reconnect loop
+        return;
+      }
+      if (response.status === 429) {
+        await mcp.notification({
+          method: 'notifications/claude/channel',
+          params: {
+            content: `\u26a0\ufe0f Max connections reached. Close other sessions and retry.`,
+            meta: { event_type: 'error', entity: 'channel', http_status: '429' },
+          },
+        });
       }
       await scheduleReconnect(attempt);
       return;
     }
 
-    // Successful connection — notify Claude Code
+    // Successful connection
     console.error(`[fyso-channel] SSE connected${AGENT_ID ? ` as ${AGENT_NAME || AGENT_ID}` : ''}`);
+    const agent = AGENT_NAME || 'anon';
+    const lines = [
+      `\u2705 ${agent} online | ${TENANT_SLUG}`,
+    ];
     await mcp.notification({
       method: 'notifications/claude/channel',
       params: {
-        content: `Fyso event stream connected. Listening on tenant "${TENANT_SLUG}"${ENTITIES ? ` (entities: ${ENTITIES})` : ''}${AGENT_ID ? `. Agent: ${AGENT_NAME || AGENT_ID}` : ''}.`,
+        content: lines.join('\n'),
         meta: { event_type: 'connected', entity: 'channel' },
       },
     });
@@ -263,21 +411,52 @@ async function startSseBridge(): Promise<() => void> {
             if (payload.action) meta.action = String(payload.action);
             if (payload.tenantSlug) meta.tenant = String(payload.tenantSlug);
 
-            // For message.received events, fetch thread context
+            // Sender gating (#17): drop message.received from disallowed senders
+            if (parsed.event === 'message.received' && ALLOWED_SENDERS) {
+              const sender = payload.from_agent ?? '';
+              if (!ALLOWED_SENDERS.has(sender)) {
+                console.error(`[fyso-channel] Dropped message from unlisted sender: ${sender}`);
+                continue;
+              }
+            }
+
+            // Format message.received events for readability
             if (parsed.event === 'message.received' && payload.message_id) {
+              // Fetch thread context
+              let thread: Array<{ from: string; subject?: string; payload: any; created_at: string }> = [];
               try {
-                const thread = await fetchThread(payload.message_id);
+                thread = await fetchThread(payload.message_id);
                 if (thread.length > 0) {
                   payload.thread = thread;
                   payload.thread_length = thread.length;
                 }
-              } catch {
-                // Thread fetch failed — send without context
-              }
-            }
+              } catch {}
 
-            // Pretty-print the payload for Claude readability
-            content = JSON.stringify(payload, null, 2);
+              // Build compact header + full payload for Claude
+              const pri = payload.priority === 'urgent' ? '\ud83d\udd34' : payload.priority === 'high' ? '\ud83d\udfe0' : '';
+              const subj = payload.subject ? ` — ${payload.subject}` : '';
+              const header = `\ud83d\udce9 ${payload.from_agent}${subj}${pri ? ' ' + pri : ''}`;
+
+              const lines = [header];
+
+              if (thread.length > 1) {
+                lines.push(`\ud83e\uddf5 ${thread.length} msgs in thread`);
+                for (const msg of thread) {
+                  const text = msg.payload?.message || msg.payload?.text || JSON.stringify(msg.payload);
+                  const preview = text.length > 80 ? text.slice(0, 80) + '...' : text;
+                  lines.push(`  ${msg.from}: ${preview}`);
+                }
+              }
+
+              lines.push(JSON.stringify(payload, null, 2));
+              content = lines.join('\n');
+            } else if (parsed.event === 'connected') {
+              // Skip the raw connected event — we already sent a formatted one
+              continue;
+            } else {
+              // Other events: pretty-print JSON
+              content = JSON.stringify(payload, null, 2);
+            }
           } catch {
             // Non-JSON payload — forward as-is
           }
@@ -304,7 +483,7 @@ async function startSseBridge(): Promise<() => void> {
     await mcp.notification({
       method: 'notifications/claude/channel',
       params: {
-        content: 'Fyso event stream disconnected. Reconnecting...',
+        content: '\ud83d\udd0c Disconnected. Reconnecting...',
         meta: { event_type: 'disconnected', entity: 'channel' },
       },
     });
