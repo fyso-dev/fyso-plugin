@@ -21,10 +21,24 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 // Config
 // ---------------------------------------------------------------------------
 
-const API_URL = (process.env.FYSO_API_URL ?? 'https://app.fyso.dev').replace(/\/$/, '');
+const API_URL = (process.env.FYSO_API_URL ?? 'https://api.fyso.dev').replace(/\/$/, '');
 const TENANT_SLUG = process.env.FYSO_TENANT_SLUG ?? '';
 const API_KEY = process.env.FYSO_API_KEY ?? '';
 const ENTITIES = process.env.FYSO_ENTITIES ?? '';
+const AGENT_NAME = process.env.FYSO_AGENT_NAME ?? '';
+
+// Resolve agent_id: env var first, then .fyso-agent file
+let AGENT_ID = process.env.FYSO_AGENT_ID ?? '';
+
+if (!AGENT_ID) {
+  try {
+    const agentFile = await Bun.file(`${process.cwd()}/.fyso-agent`).text();
+    const agentData = JSON.parse(agentFile);
+    if (agentData.agent_id) AGENT_ID = agentData.agent_id;
+  } catch {}
+}
+
+console.error(`[fyso-channel] Agent: ${AGENT_ID || 'none (no messaging)'}, cwd: ${process.cwd()}`);
 
 // Reconnect delay starts at 1s and backs off exponentially up to 60s
 const RECONNECT_BASE_MS = 1_000;
@@ -43,10 +57,32 @@ const mcp = new Server(
     },
     instructions: [
       'You are connected to the Fyso real-time event stream.',
-      `Events from tenant "${TENANT_SLUG || '<not configured>'}" arrive as <channel source="fyso-channel" entity="..." event_type="..." record_id="..."> tags.`,
-      'Each event carries a JSON payload in the tag body with the record data that changed.',
-      'React to events as appropriate: query for more context using fyso_data, alert the user, or take automated action.',
-      'No reply tool is needed — this is a one-way event channel.',
+      `Communication tenant: "${TENANT_SLUG || '<not configured>'}". This tenant is ONLY for messaging between agents. Do NOT use it for work (entities, rules, etc). Do NOT use select_tenant with your agent name.`,
+      '',
+      '## On startup',
+      `1. Select the communication tenant: fyso_agents or fyso_auth(action: "select_tenant", tenantSlug: "${TENANT_SLUG}")`,
+      AGENT_ID
+        ? `2. Check your inbox for pending messages: fyso_agents(action: "inbox", agent_name: "${AGENT_NAME || 'unknown'}")`
+        : '2. No agent identity — skip inbox check.',
+      '3. Process any pending messages before waiting for new events.',
+      '',
+      '## Messaging',
+      AGENT_ID
+        ? [
+            `Agent identity: ${AGENT_NAME || 'unknown'} (${AGENT_ID}).`,
+            'You will receive message.received events addressed to you.',
+            `Reply using: fyso_agents(action: "send_message", to_agent: "<sender>", payload: {message: "your reply"}, in_reply_to: "<original_message_id>")`,
+            'IMPORTANT: Use "payload" (object) for message content, NOT "message" (string). The "message" param is for the "run" action only.',
+            '',
+            '## Threading',
+            'When you receive a message with in_reply_to, read the parent to get context:',
+            '  fyso_agents(action: "read_message", message_id: "<in_reply_to>")',
+            'Follow the in_reply_to chain to reconstruct the full conversation thread before responding.',
+          ].join('\n')
+        : 'No agent identity configured — messaging events will not arrive. Use /fyso:listen --name <name> to register.',
+      '',
+      '## Events',
+      'Events arrive as <channel source="fyso-channel" entity="..." event_type="..." record_id="..."> tags with a JSON payload.',
       ENTITIES
         ? `Active entity filter: ${ENTITIES}. Only events for these entities will arrive.`
         : 'No entity filter active — all tenant events will arrive.',
@@ -82,12 +118,48 @@ function parseSseBlock(block: string): { event: string; data: string; id?: strin
 }
 
 /**
+ * Fetch a message by ID and follow in_reply_to chain to build thread context.
+ * Returns array from oldest to newest. Max 10 messages to avoid runaway chains.
+ */
+async function fetchThread(messageId: string): Promise<Array<{ from: string; subject?: string; payload: any; created_at: string }>> {
+  const thread: Array<{ from: string; subject?: string; payload: any; created_at: string }> = [];
+  let currentId: string | null = messageId;
+  let depth = 0;
+
+  while (currentId && depth < 10) {
+    try {
+      const res = await fetch(`${API_URL}/api/tenants/${TENANT_SLUG}/agent-messages/${currentId}/read`, {
+        headers: { Authorization: `Bearer ${API_KEY}` },
+      });
+      if (!res.ok) break;
+      const data = await res.json() as any;
+      const msg = data.data ?? data.message ?? data;
+      thread.unshift({
+        from: msg.from_agent,
+        subject: msg.subject,
+        payload: msg.payload,
+        created_at: msg.created_at,
+      });
+      currentId = msg.in_reply_to ?? null;
+    } catch {
+      break;
+    }
+    depth++;
+  }
+
+  return thread;
+}
+
+/**
  * Build the SSE URL for the given tenant + optional entity filter.
  */
 function buildSseUrl(): string {
   const base = `${API_URL}/api/v1/tenants/${TENANT_SLUG}/events/stream`;
-  if (!ENTITIES) return base;
-  return `${base}?entities=${encodeURIComponent(ENTITIES)}`;
+  const params = new URLSearchParams();
+  if (ENTITIES) params.set('entities', ENTITIES);
+  if (AGENT_ID) params.set('agent_id', AGENT_ID);
+  const qs = params.toString();
+  return qs ? `${base}?${qs}` : base;
 }
 
 /**
@@ -143,11 +215,11 @@ async function startSseBridge(): Promise<() => void> {
     }
 
     // Successful connection — notify Claude Code
-    console.error('[fyso-channel] SSE connected');
+    console.error(`[fyso-channel] SSE connected${AGENT_ID ? ` as ${AGENT_NAME || AGENT_ID}` : ''}`);
     await mcp.notification({
       method: 'notifications/claude/channel',
       params: {
-        content: `Fyso event stream connected. Listening on tenant "${TENANT_SLUG}"${ENTITIES ? ` (entities: ${ENTITIES})` : ''}.`,
+        content: `Fyso event stream connected. Listening on tenant "${TENANT_SLUG}"${ENTITIES ? ` (entities: ${ENTITIES})` : ''}${AGENT_ID ? `. Agent: ${AGENT_NAME || AGENT_ID}` : ''}.`,
         meta: { event_type: 'connected', entity: 'channel' },
       },
     });
@@ -190,6 +262,20 @@ async function startSseBridge(): Promise<() => void> {
             if (payload.id) meta.record_id = String(payload.id);
             if (payload.action) meta.action = String(payload.action);
             if (payload.tenantSlug) meta.tenant = String(payload.tenantSlug);
+
+            // For message.received events, fetch thread context
+            if (parsed.event === 'message.received' && payload.message_id) {
+              try {
+                const thread = await fetchThread(payload.message_id);
+                if (thread.length > 0) {
+                  payload.thread = thread;
+                  payload.thread_length = thread.length;
+                }
+              } catch {
+                // Thread fetch failed — send without context
+              }
+            }
+
             // Pretty-print the payload for Claude readability
             content = JSON.stringify(payload, null, 2);
           } catch {

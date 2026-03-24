@@ -1,0 +1,7 @@
+{
+  "name": "@fyso/channel-server",
+  "private": true,
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.0"
+  }
+}
