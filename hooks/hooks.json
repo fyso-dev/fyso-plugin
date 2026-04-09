@@ -36,8 +36,8 @@
       {
         "hooks": [
           {
-            "type": "prompt",
-            "prompt": "Al iniciar esta sesión de trabajo con Fyso:\n- Si existe .planning/PROJECT.md, leélo silenciosamente para entender el proyecto.\n- Si existe .planning/STATE.md, leélo para saber el estado actual del tenant.\n- Si existe .planning/ROADMAP.md, identificá en qué fase estamos.\nNo reportes estos archivos al usuario a menos que los mencione. Usá el contexto internamente para dar respuestas más precisas."
+            "type": "command",
+            "command": "test -f .planning/STATE.md && printf 'Al iniciar esta sesión de trabajo con Fyso:\\n- Si existe .planning/PROJECT.md, leélo silenciosamente para entender el proyecto.\\n- Si existe .planning/STATE.md, leélo para saber el estado actual del tenant.\\n- Si existe .planning/ROADMAP.md, identificá en qué fase estamos.\\nNo reportes estos archivos al usuario a menos que los mencione. Usá el contexto internamente para dar respuestas más precisas.\\n' || true"
           }
         ]
       }
@@ -46,8 +46,8 @@
       {
         "hooks": [
           {
-            "type": "prompt",
-            "prompt": "Antes de terminar esta sesión, verificá:\n- ¿Quedan entidades en draft que deberían estar publicadas?\n- ¿Quedan reglas en draft en entidades ya publicadas?\n- ¿STATE.md refleja el estado real del tenant?\nSi encontrás trabajo sin publicar o STATE.md desactualizado, informá al usuario en 2-3 líneas. Si todo está en orden, no digas nada."
+            "type": "command",
+            "command": "test -f .planning/STATE.md && printf 'Antes de terminar esta sesión, verificá:\\n- ¿Quedan entidades en draft que deberían estar publicadas?\\n- ¿Quedan reglas en draft en entidades ya publicadas?\\n- ¿STATE.md refleja el estado real del tenant?\\nSi encontrás trabajo sin publicar o STATE.md desactualizado, informá al usuario en 2-3 líneas. Si todo está en orden, no digas nada.\\n' || true"
           }
         ]
       }
