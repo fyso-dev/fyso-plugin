@@ -4,6 +4,9 @@
   "description": "Official Fyso plugin for OpenCode — tracking, team sync, and session management for building ERPs with natural language",
   "type": "module",
   "main": "src/index.ts",
+  "bin": {
+    "fyso-opencode-setup": "src/setup.ts"
+  },
   "author": {
     "name": "Fyso",
     "email": "hello@fyso.dev"

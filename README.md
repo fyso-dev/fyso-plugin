@@ -48,36 +48,17 @@ Add to `.claude/settings.json`:
 
 ### OpenCode
 
-#### 1. Install the plugin (npm)
-
-Add to your `opencode.json`:
-
-```json
-{
-  "plugin": ["@fyso/opencode-plugin"],
-  "mcp": {
-    "fyso": {
-      "type": "remote",
-      "url": "https://mcp.fyso.dev/mcp"
-    }
-  }
-}
-```
-
-#### 2. Copy agents and skills to your project
+Run the setup command in your project directory:
 
 ```bash
-git clone https://github.com/fyso-dev/fyso-plugin.git /tmp/fyso-plugin
-
-# Agents (subagents for OpenCode)
-cp -r /tmp/fyso-plugin/.opencode/agents/ .opencode/agents/
-
-# Skills (discovered automatically by OpenCode)
-cp -r /tmp/fyso-plugin/.opencode/skills/ .opencode/skills/
-
-# Reference docs
-cp /tmp/fyso-plugin/FYSO-REFERENCE.md ./FYSO-REFERENCE.md
+npx @fyso/opencode-plugin setup
 ```
+
+This automatically:
+- Copies agents to `.opencode/agents/` (5 subagents)
+- Copies skills to `.opencode/skills/` (23 skills)
+- Copies `FYSO-REFERENCE.md` to your project
+- Updates `opencode.json` with the plugin and Fyso MCP server
 
 Skills are available via the `skill` tool, agents via `@` mentions.
 
