@@ -89,7 +89,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "test -f .planning/STATE.md && printf 'Antes de terminar esta sesión, verificá:\\n- ¿Quedan entidades en draft que deberían estar publicadas?\\n- ¿Quedan reglas en draft en entidades ya publicadas?\\n- ¿STATE.md refleja el estado real del tenant?\\nSi encontrás trabajo sin publicar o STATE.md desactualizado, informá al usuario en 2-3 líneas. Si todo está en orden, no digas nada.\\n' || true"
+            "command": "test -f .planning/STATE.md && printf '{\"continue\":true,\"systemMessage\":\"Antes de terminar esta sesión, verificá:\\\\n- ¿Quedan entidades en draft que deberían estar publicadas?\\\\n- ¿Quedan reglas en draft en entidades ya publicadas?\\\\n- ¿STATE.md refleja el estado real del tenant?\\\\nSi encontrás trabajo sin publicar o STATE.md desactualizado, informá al usuario en 2-3 líneas. Si todo está en orden, no digas nada.\"}' || true"
           },
           {
             "type": "command",
