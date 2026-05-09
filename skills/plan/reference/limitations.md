@@ -146,16 +146,7 @@ The REST API and fyso_data `query` action only support AND compound filters. The
 
 **Workaround:** Fetch records with the broadest applicable filter and apply OR conditions client-side after receiving results.
 
-### 12. resolve_depth only works on list endpoints
-
-**Impact:** Low
-**Affects:** Single record fetches with related entity resolution
-
-`resolve_depth` only works on `GET /records` (list) and `fyso_data({ action: "query" })`. It does NOT work on `GET /records/:id` (single record fetch).
-
-**Workaround:** After fetching a single record, make separate `GET /records/:id` calls for each related entity UUID you need to resolve.
-
-### 13. No aggregation queries (SUM, COUNT, AVG)
+### 12. No aggregation queries (SUM, COUNT, AVG)
 
 **Impact:** Medium
 **Affects:** Dashboard KPIs, totals, statistical summaries
@@ -164,7 +155,7 @@ Fyso has no server-side aggregation. There are no SUM, COUNT, AVG, GROUP BY quer
 
 **Workaround:** Fetch all relevant records (using pagination if needed) and compute aggregations client-side.
 
-### 14. Agent REST endpoint returns 401 with user tokens
+### 13. Agent REST endpoint returns 401 with user tokens
 
 **Impact:** High
 **Affects:** Calling `/api/agents/{slug}/run` from client-side code

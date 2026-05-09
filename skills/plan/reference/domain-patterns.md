@@ -110,11 +110,13 @@ Use this reference when designing Fyso apps. These patterns cover the most commo
 - **mesas** — numero(number, unique), capacidad(number), estado(select: libre/ocupada/reservada)
 - **pedidos** — mesa(rel→mesas), fecha(date), hora(text), total(number), estado(select: abierto/en_preparacion/servido/cerrado), mesero(text)
 - **detalle_pedido** — pedido(rel→pedidos), plato(rel→platos), cantidad(number), precio_unitario(number), subtotal(number), notas(text)
+- **pagos** — pedido(rel→pedidos), fecha(date), monto(number), metodo(select: efectivo/tarjeta/transferencia)
 
 ### Common Rules
 - Compute: detalle subtotal = cantidad * precio_unitario
 - Validate: cantidad > 0
 - Validate: plato disponible == true
+- Validate: monto pago > 0
 
 ### Frontend Flow
 
@@ -133,7 +135,7 @@ Use this reference when designing Fyso apps. These patterns cover the most commo
 
 **Journey: Pay and close**
 1. Refetch pedido for the outstanding total.
-2. Create pago → `POST /api/entities/pagos/records` with `{ pedido, monto, metodo, fecha }` (assumes a `pagos` entity in your tenant — reuse the pattern from Freelancer if you need to model it).
+2. Create pago → `POST /api/entities/pagos/records` with `{ pedido, monto, metodo, fecha }`
 3. Close pedido → `PUT /api/entities/pedidos/records/:id` with `{ estado: "cerrado" }`
 4. Free the mesa → `PUT /api/entities/mesas/records/:mesa_id` with `{ estado: "libre" }`
 

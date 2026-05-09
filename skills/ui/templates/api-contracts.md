@@ -166,7 +166,7 @@ Response:
 { "success": true, "data": { "id": "...", "...": "..." } }
 ```
 
-> Read the record from `json.data`. `resolve_depth` is NOT supported here — use the list endpoint with `?filters=id = {id}&resolve_depth=1` if you need expanded relations.
+> Read the record from `json.data`. Pass `?resolve_depth=1` (max 3) when you need related fields expanded as nested objects instead of UUID strings.
 
 **Create:**
 ```http
@@ -207,12 +207,13 @@ GET /api/entities/{entity}/records?filters=estado = activo AND monto > 1000
 
 For OR conditions, fetch with the AND subset and filter `json.data.items` client-side.
 
-**Expand relations (list endpoint only):**
+**Expand relations:**
 ```http
 GET /api/entities/{entity}/records?resolve_depth=1
+GET /api/entities/{entity}/records/{id}?resolve_depth=1
 ```
 
-When `resolve_depth=1`, every relation field on each item becomes a full nested object instead of a UUID string — use this whenever the UI needs to show a related entity's name (so you don't render UUIDs). For entities listed below with relations, ALWAYS request `resolve_depth=1` on list views.
+When `resolve_depth=1`, every relation field on the response becomes a full nested object instead of a UUID string — use this whenever the UI needs to show a related entity's name (so you don't render UUIDs). Supported on list (max depth 2) and on single-record GET (max depth 3). For entities listed below with relations, ALWAYS request `resolve_depth=1`.
 
 ---
 
