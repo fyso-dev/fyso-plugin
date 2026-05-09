@@ -28,20 +28,20 @@ interface TrackingEvent {
   timestamp: string
 }
 
-function inferModelFamily(model: string): string {
+export function inferModelFamily(model: string): string {
   if (model.includes("opus")) return "opus"
   if (model.includes("sonnet")) return "sonnet"
   if (model.includes("haiku")) return "haiku"
   return "opus"
 }
 
-const PRICING: Record<string, Record<string, number>> = {
+export const PRICING: Record<string, Record<string, number>> = {
   opus: { input: 15, output: 75, cache_write: 3.75, cache_read: 0.375 },
   sonnet: { input: 3, output: 15, cache_write: 3.75, cache_read: 0.3 },
   haiku: { input: 0.8, output: 4, cache_write: 1.0, cache_read: 0.08 },
 }
 
-function calculateCost(
+export function calculateCost(
   family: string,
   input: number,
   output: number,

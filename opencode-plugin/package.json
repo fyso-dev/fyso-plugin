@@ -14,7 +14,13 @@
   "repository": "https://github.com/fyso-dev/fyso-plugin",
   "license": "MIT",
   "keywords": ["opencode", "opencode-plugin", "fyso", "erp", "mcp", "business-apps"],
+  "scripts": {
+    "test": "vitest run"
+  },
   "peerDependencies": {
     "@opencode-ai/plugin": "*"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.8"
   }
 }
