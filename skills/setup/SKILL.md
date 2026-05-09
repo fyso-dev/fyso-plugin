@@ -151,7 +151,7 @@ El plugin incluye `.mcp.json` que conecta via OAuth:
   "mcpServers": {
     "fyso": {
       "command": "npx",
-      "args": ["-y", "mcp-remote", "https://app.fyso.dev/mcp"]
+      "args": ["-y", "mcp-remote", "https://mcp.fyso.dev/mcp"]
     }
   }
 }
@@ -173,7 +173,7 @@ Al usar cualquier herramienta por primera vez, se abre un flujo OAuth para auten
   "mcpServers": {
     "fyso": {
       "command": "npx",
-      "args": ["-y", "mcp-remote", "https://app.fyso.dev/mcp"]
+      "args": ["-y", "mcp-remote", "https://mcp.fyso.dev/mcp"]
     }
   }
 }
@@ -207,6 +207,6 @@ Al usar cualquier herramienta por primera vez, se abre un flujo OAuth para auten
 
 | Error | Fix |
 |-------|-----|
-| MCP server not found | Verificar que `npx` este instalado: `npx --version`. Probar `curl https://app.fyso.dev/mcp/health` |
+| MCP server not found | Verificar que `npx` este instalado: `npx --version`. Probar `curl https://mcp.fyso.dev/mcp` (debe responder 401 con `WWW-Authenticate: Bearer`) |
 | Authentication failed | Reiniciar Claude Code para repetir flujo OAuth. Verificar cuenta activa en [fyso.dev](https://fyso.dev) |
 | Unknown action | Verificar que la accion sea valida para la herramienta — usar acciones exactas listadas arriba |
