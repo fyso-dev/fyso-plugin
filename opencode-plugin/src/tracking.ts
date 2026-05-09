@@ -1,6 +1,18 @@
 import { readConfig, readTeamConfig, apiRequest, debugLog } from "./config"
 import { createHash } from "crypto"
 import { userInfo } from "os"
+import { readFileSync } from "fs"
+import { fileURLToPath } from "url"
+import { dirname, join } from "path"
+
+const pricingData = JSON.parse(
+  readFileSync(join(dirname(fileURLToPath(import.meta.url)), "pricing.json"), "utf8"),
+) as {
+  default_family: string
+  pricing: Record<string, Record<string, number>>
+}
+
+const DEFAULT_FAMILY = pricingData.default_family
 
 interface TrackingEvent {
   event: string
@@ -32,14 +44,10 @@ export function inferModelFamily(model: string): string {
   if (model.includes("opus")) return "opus"
   if (model.includes("sonnet")) return "sonnet"
   if (model.includes("haiku")) return "haiku"
-  return "opus"
+  return DEFAULT_FAMILY
 }
 
-export const PRICING: Record<string, Record<string, number>> = {
-  opus: { input: 15, output: 75, cache_write: 3.75, cache_read: 0.375 },
-  sonnet: { input: 3, output: 15, cache_write: 3.75, cache_read: 0.3 },
-  haiku: { input: 0.8, output: 4, cache_write: 1.0, cache_read: 0.08 },
-}
+export const PRICING = pricingData.pricing
 
 export function calculateCost(
   family: string,
