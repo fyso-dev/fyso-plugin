@@ -58,6 +58,22 @@ export async function debugLog(message: string): Promise<void> {
   }
 }
 
+export class ApiRequestError extends Error {
+  readonly status: number
+  readonly method: string
+  readonly path: string
+  readonly bodySnippet: string
+
+  constructor(method: string, path: string, status: number, bodySnippet: string) {
+    super(`apiRequest ${method} ${path} failed with HTTP ${status}: ${bodySnippet}`)
+    this.name = "ApiRequestError"
+    this.method = method
+    this.path = path
+    this.status = status
+    this.bodySnippet = bodySnippet
+  }
+}
+
 export async function apiRequest(
   config: FysoConfig,
   method: string,
@@ -77,6 +93,13 @@ export async function apiRequest(
     body: body ? JSON.stringify(body) : undefined,
     signal: AbortSignal.timeout(5000),
   })
+
+  if (!resp.ok) {
+    const raw = await resp.text().catch(() => "")
+    const snippet = raw.length > 500 ? raw.slice(0, 500) + "…" : raw
+    await debugLog(`API_HTTP_ERROR: ${method} ${path} -> ${resp.status} ${snippet}`)
+    throw new ApiRequestError(method, path, resp.status, snippet)
+  }
 
   return resp.json()
 }

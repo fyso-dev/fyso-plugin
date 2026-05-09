@@ -8,7 +8,7 @@ vi.mock("./config", () => ({
 }))
 
 import { calculateCost, inferModelFamily, PRICING, createTracker } from "./tracking"
-import { readConfig, readTeamConfig, apiRequest } from "./config"
+import { readConfig, readTeamConfig, apiRequest, debugLog } from "./config"
 
 describe("inferModelFamily", () => {
   it("returns opus for opus model strings", () => {
@@ -167,5 +167,19 @@ describe("createTracker token accumulation", () => {
     const bPayload = calls[1][3] as Record<string, number>
     expect(aPayload.session_input_tokens).toBe(100)
     expect(bPayload.session_input_tokens).toBe(7)
+  })
+
+  it("logs the error via debugLog when apiRequest rejects on HTTP 500", async () => {
+    vi.mocked(apiRequest).mockRejectedValueOnce(
+      new Error("apiRequest POST /api/entities/tracking/records failed with HTTP 500: boom"),
+    )
+
+    const tracker = createTracker()
+    await expect(tracker.toolExecuted({ input_tokens: 10 })).resolves.toBeUndefined()
+
+    const debugCalls = vi.mocked(debugLog).mock.calls.map((c) => c[0])
+    const errorLog = debugCalls.find((m) => m.startsWith("TRACKING_ERROR:"))
+    expect(errorLog).toBeDefined()
+    expect(errorLog).toContain("HTTP 500")
   })
 })
