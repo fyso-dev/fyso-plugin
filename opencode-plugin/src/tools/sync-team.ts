@@ -1,7 +1,7 @@
 import { readConfig, readTeamConfig, apiRequest } from "../config"
 import { readFile, writeFile, mkdir, rm } from "fs/promises"
 import { existsSync } from "fs"
-import { join } from "path"
+import { join, resolve, sep } from "path"
 
 interface Agent {
   name: string
@@ -9,6 +9,22 @@ interface Agent {
   role: string
   soul: string
   system_prompt: string
+}
+
+const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]*$/
+
+export function isSafeAgentName(name: string): boolean {
+  return typeof name === "string" && name.length > 0 && name.length <= 64 && SAFE_NAME.test(name)
+}
+
+export function resolveAgentFilePath(dir: string, name: string): string | null {
+  if (!isSafeAgentName(name)) return null
+  const filePath = join(dir, `${name}.md`)
+  const resolvedDir = resolve(dir)
+  const resolvedFile = resolve(filePath)
+  const prefix = resolvedDir.endsWith(sep) ? resolvedDir : resolvedDir + sep
+  if (resolvedFile !== resolvedDir && !resolvedFile.startsWith(prefix)) return null
+  return filePath
 }
 
 const ROLE_COLORS: Record<string, string> = {
@@ -101,7 +117,11 @@ export async function syncAgentsToDirectory(
   await mkdir(claudeDir, { recursive: true })
 
   for (const agent of agents) {
-    const filePath = join(claudeDir, `${agent.name}.md`)
+    const filePath = resolveAgentFilePath(claudeDir, agent.name)
+    if (!filePath) {
+      console.warn(`[fyso] skipping agent with unsafe name: ${JSON.stringify(agent.name)}`)
+      continue
+    }
     if (existsSync(filePath)) await rm(filePath)
     const color = getColor(agent.role)
     const firstLine = firstLineOf(agent.soul, agent.display_name)
@@ -131,7 +151,11 @@ ${agent.system_prompt}
   await mkdir(opencodeDir, { recursive: true })
 
   for (const agent of agents) {
-    const filePath = join(opencodeDir, `${agent.name}.md`)
+    const filePath = resolveAgentFilePath(opencodeDir, agent.name)
+    if (!filePath) {
+      console.warn(`[fyso] skipping agent with unsafe name: ${JSON.stringify(agent.name)}`)
+      continue
+    }
     if (existsSync(filePath)) await rm(filePath)
     const color = getColor(agent.role)
     const content = `---
