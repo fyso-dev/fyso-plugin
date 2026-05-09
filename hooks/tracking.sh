@@ -6,6 +6,10 @@
 CONFIG="$HOME/.fyso/config.json"
 [ ! -f "$CONFIG" ] && exit 0
 
+# Resolve shared pricing source of truth (sibling opencode-plugin/src/pricing.json)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PRICING_FILE="$SCRIPT_DIR/../opencode-plugin/src/pricing.json"
+
 # Read stdin to temp file (avoids quoting issues)
 TMPFILE=$(mktemp)
 cat > "$TMPFILE" 2>/dev/null || true
@@ -21,7 +25,7 @@ if [ -f "$HOME/.fyso/debug" ]; then
 fi
 
 # Single python call: read config + parse stdin + build payload + send
-export TMPFILE EVENT_TYPE
+export TMPFILE EVENT_TYPE PRICING_FILE
 python3 << 'PYEOF'
 import json, re, datetime, os, sys, getpass, hashlib
 try:
@@ -43,6 +47,15 @@ user_email = cfg.get("user_email", "")
 
 if not token or not tenant:
     sys.exit(0)
+
+# Load shared pricing source of truth (PRICING table + default_family)
+DEFAULT_FAMILY = "opus"
+try:
+    with open(os.environ.get("PRICING_FILE", "")) as pf:
+        _pdata = json.load(pf)
+    DEFAULT_FAMILY = _pdata.get("default_family", "opus")
+except:
+    pass
 
 # Read stdin JSON from temp file (once)
 tmpfile = os.environ.get("TMPFILE", "")
@@ -225,7 +238,7 @@ if event_type in ("session_end", "session_update"):
     cache_read_tokens = 0
 
 # Model family (for business rule cost calculation server-side)
-model_family = "opus" if "opus" in model else "sonnet" if "sonnet" in model else "haiku" if "haiku" in model else "opus"
+model_family = "opus" if "opus" in model else "sonnet" if "sonnet" in model else "haiku" if "haiku" in model else DEFAULT_FAMILY
 
 # User
 user = user_email or getpass.getuser()

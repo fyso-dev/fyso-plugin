@@ -1,0 +1,8 @@
+{
+  "default_family": "opus",
+  "pricing": {
+    "opus":   { "input": 15,  "output": 75, "cache_write": 3.75, "cache_read": 0.375 },
+    "sonnet": { "input": 3,   "output": 15, "cache_write": 3.75, "cache_read": 0.3 },
+    "haiku":  { "input": 0.8, "output": 4,  "cache_write": 1.0,  "cache_read": 0.08 }
+  }
+}

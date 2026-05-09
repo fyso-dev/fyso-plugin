@@ -6,6 +6,10 @@
 CONFIG="$HOME/.fyso/config.json"
 [ ! -f "$CONFIG" ] && exit 0
 
+# Resolve shared pricing source of truth (sibling opencode-plugin/src/pricing.json)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export PRICING_FILE="$SCRIPT_DIR/../opencode-plugin/src/pricing.json"
+
 # Read session info from stdin (SessionStart JSON)
 STDIN_DATA=$(cat 2>/dev/null || true)
 
@@ -126,13 +130,17 @@ for line in lines:
         continue
 total_tokens = total_input + total_output + total_cache_creation + total_cache_read
 
-# Cost calculation (per 1M tokens)
-PRICING = {
-    "opus":   {"input": 15,   "output": 75,  "cache_write": 3.75, "cache_read": 0.375},
-    "sonnet": {"input": 3,    "output": 15,  "cache_write": 3.75,  "cache_read": 0.3},
-    "haiku":  {"input": 0.8,  "output": 4,   "cache_write": 1.0,   "cache_read": 0.08},
-}
-model_family = "opus" if "opus" in model else "sonnet" if "sonnet" in model else "haiku" if "haiku" in model else ""
+# Cost calculation (per 1M tokens) — loaded from shared source of truth
+PRICING = {}
+DEFAULT_FAMILY = "opus"
+try:
+    with open(os.environ.get("PRICING_FILE", "")) as pf:
+        _pdata = json.load(pf)
+    PRICING = _pdata.get("pricing", {})
+    DEFAULT_FAMILY = _pdata.get("default_family", "opus")
+except:
+    pass
+model_family = "opus" if "opus" in model else "sonnet" if "sonnet" in model else "haiku" if "haiku" in model else DEFAULT_FAMILY
 p = PRICING.get(model_family, {})
 cost_usd = (total_input / 1e6) * p.get("input", 0) + (total_output / 1e6) * p.get("output", 0) + (total_cache_creation / 1e6) * p.get("cache_write", 0) + (total_cache_read / 1e6) * p.get("cache_read", 0) if p else 0
 
