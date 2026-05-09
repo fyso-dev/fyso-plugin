@@ -283,7 +283,7 @@ record.data.nombre  // undefined — data is NOT nested
 
 ### resolve_depth — Inline Related Objects
 
-Use `?resolve_depth=1` on list endpoints to replace relation UUID fields with full objects. Only works on list (GET /records), NOT on single record (GET /records/:id).
+Use `?resolve_depth=1` to replace relation UUID fields with full objects. Supported on list endpoints (max depth 2) and on single-record GET (max depth 3).
 
 ```ts
 // Without resolve_depth:

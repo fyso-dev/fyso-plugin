@@ -571,7 +571,7 @@ GET /api/entities/{entity}/records/{id}
 Response data: { id, entityId, ...fields, createdAt, updatedAt }
 ```
 
-Records are flat (since v1.26.0): read fields as `record.fieldKey`, never `record.data.fieldKey`. `resolve_depth` is not supported on this endpoint — use the list endpoint with an id filter if you need expanded relations.
+Records are flat (since v1.26.0): read fields as `record.fieldKey`, never `record.data.fieldKey`. Pass `?resolve_depth=1` (max 3) when you need related fields expanded as nested objects instead of UUID strings.
 
 **Create:**
 ```

@@ -183,7 +183,7 @@ DELETE /api/entities/{entity}/records/:id      # Delete
 ?order=desc            # asc or desc
 ?filters=field = value              # single filter
 ?filters=field = value AND other = x  # compound (AND only, no OR)
-?resolve_depth=1       # inline related objects (max 2, list endpoints only)
+?resolve_depth=1       # inline related objects (max 2 on list, max 3 on single record)
 ```
 
 ### Filter Operators
@@ -237,8 +237,9 @@ ws://app.fyso.dev/ws?token={api_key}&tenantId={slug}
 Per-entity toggle: `realtimeEnabled` in entity metadata.
 
 ### resolve_depth behavior
-- Only works on list endpoints (GET /records), NOT on single record (GET /records/:id)
-- Max depth: 2
+- List endpoints (GET /records): max depth 2
+- Single record (GET /records/:id): max depth 3
+- MCP `fyso_data({ action: "query" })`: max depth 3
 - Transforms relation fields from UUID strings to full objects
 
 Source: `skills/api/reference/rest-api.md`
@@ -306,10 +307,9 @@ Source: `skills/rules/reference/dsl-reference.md`
 | 9 | `deploy` response `url` field is wrong — returns `{slug}.fyso.dev` without `-sites` | High | Always use `{slug}-sites.fyso.dev` as the real URL |
 | 10 | Fyso static hosting ignores `_redirects` — BrowserRouter SPA routes 404 on direct access | High | Use Astro (generates per-route index.html) or HashRouter for SPAs |
 | 11 | OR filters not supported server-side | Medium | Client-side filter for OR conditions |
-| 12 | resolve_depth only on list endpoints | Low | Separate GET /records/:id call per related entity |
-| 13 | No aggregation queries (SUM, COUNT, AVG) | Medium | Fetch all records + compute client-side |
-| 14 | Agent REST endpoint returns 401 with user tokens | High | Use MCP `fyso_agents({ action: "run" })` instead |
-| 15 | `contains` filter: case sensitivity / Unicode collation not specified, no wildcards | Medium | Test against your data; for guaranteed text search use semantic search or a normalized field |
+| 12 | No aggregation queries (SUM, COUNT, AVG) | Medium | Fetch all records + compute client-side |
+| 13 | Agent REST endpoint returns 401 with user tokens | High | Use MCP `fyso_agents({ action: "run" })` instead |
+| 14 | `contains` filter: case sensitivity / Unicode collation not specified, no wildcards | Medium | Test against your data; for guaranteed text search use semantic search or a normalized field |
 
 **Things that work fine:** Multiple entity creation, rules after publish, relations, `fyso_data({ action: "query" })`, metadata import/export.
 
@@ -335,9 +335,9 @@ Source: `skills/plan/reference/limitations.md`
 - **Rules:** Compute: factura total = subtotal + iva, Compute: proyecto horas_total = sum of tareas horas_reales (requires after_save action), Validate: fecha_fin >= fecha_inicio, Validate: horas_estimadas > 0
 
 ### Restaurant
-- **Entities:** platos, mesas, pedidos, detalle_pedido
-- **Key relations:** pedidos→mesas, detalle_pedido→pedidos, detalle_pedido→platos
-- **Rules:** Compute: detalle subtotal = cantidad * precio_unitario, Validate: cantidad > 0, Validate: plato disponible == true
+- **Entities:** platos, mesas, pedidos, detalle_pedido, pagos
+- **Key relations:** pedidos→mesas, detalle_pedido→pedidos, detalle_pedido→platos, pagos→pedidos
+- **Rules:** Compute: detalle subtotal = cantidad * precio_unitario, Validate: cantidad > 0, Validate: plato disponible == true, Validate: monto pago > 0
 
 ### Repair Shop / Workshop
 - **Entities:** clientes, trabajos, repuestos, detalle_trabajo
