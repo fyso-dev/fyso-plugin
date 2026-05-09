@@ -377,7 +377,7 @@ function extractLimitations(content: string): string {
 | 12 | resolve_depth only on list endpoints | Low | Separate GET /records/:id call per related entity |
 | 13 | No aggregation queries (SUM, COUNT, AVG) | Medium | Fetch all records + compute client-side |
 | 14 | Agent REST endpoint returns 401 with user tokens | High | Use MCP \`fyso_agents({ action: "run" })\` instead |
-| 15 | \`contains\` filter behavior undocumented | Medium | Test with your data; case sensitivity varies |
+| 15 | \`contains\` filter: case sensitivity / Unicode collation not specified, no wildcards | Medium | Test against your data; for guaranteed text search use semantic search or a normalized field |
 
 **Things that work fine:** Multiple entity creation, rules after publish, relations, \`fyso_data({ action: "query" })\`, metadata import/export.`;
 }

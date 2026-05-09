@@ -169,18 +169,72 @@ Fyso has no server-side aggregation. There are no SUM, COUNT, AVG, GROUP BY quer
 **Impact:** High
 **Affects:** Calling `/api/agents/{slug}/run` from client-side code
 
-The agent REST endpoint is not accessible with user session tokens. Requests return 401 regardless of role.
+`POST /api/agents/{slug}/run` exists but rejects user session tokens with
+`401 UNAUTHORIZED`, regardless of the user's role (owner / admin / member /
+viewer). The endpoint is not a public REST surface in current builds — it is
+only reachable via MCP.
 
-**Workaround:** Use MCP `fyso_agents({ action: "run" })` instead. For client-side use, route through a backend proxy that calls the MCP tool server-side.
+**What fails:**
+```bash
+curl -X POST "https://app.fyso.dev/api/agents/waiter/run" \
+  -H "X-API-Key: $USER_SESSION_TOKEN" \
+  -H "X-Tenant-ID: mi-tenant" \
+  -d '{"message":"hola"}'
+# → 401 { "success": false, "error": { "code": "UNAUTHORIZED", ... } }
+```
 
-### 15. `contains` filter behavior undocumented
+**Workaround:**
+- From Claude / agent code: use MCP `fyso_agents({ action: "run", agent_slug: "...", message: "..." })`.
+- From a browser / mobile client: add a thin backend endpoint that invokes the
+  MCP tool server-side and forwards the response. Do **not** embed admin API
+  keys in client bundles.
+
+**Planning impact:** Do not design flows that call `/api/agents/{slug}/run`
+directly from client code. If a UI must invoke an agent, plan a backend proxy
+in the same task.
+
+### 15. `contains` filter behavior partially specified
 
 **Impact:** Medium
-**Affects:** Text search queries using `contains` operator
+**Affects:** Text search queries using the `contains` operator
 
-The `contains` operator is accepted by the query engine but its case sensitivity, partial-match behavior, and Unicode handling are not formally documented.
+The `contains` operator performs a substring match on text fields, but its
+case sensitivity, accent / Unicode collation, and behavior on non-text fields
+are not formally specified by the platform and may vary by storage backend.
 
-**Workaround:** Test with your data; case sensitivity varies. For reliable text search, consider using semantic search or fetching all records and filtering client-side.
+**Usage (REST + MCP):**
+```bash
+# REST
+curl -G ".../entities/productos/records" \
+  --data-urlencode "filters=nombre contains cafe"
+
+# MCP
+fyso_data({ action: "query", entity: "productos",
+  filters: "nombre contains cafe" })
+
+# Combined (AND only — OR is not supported server-side)
+filters=nombre contains cafe AND precio >= 100
+```
+
+**Known caveats:**
+- Treat as case-insensitive for ASCII in current builds, but verify against
+  your own data — there is no platform contract here.
+- No wildcard / regex syntax. `%`, `*`, `_` are matched as literal characters.
+- Accent-insensitive matching (e.g. `cafe` ↔ `café`) is not guaranteed.
+- Only meaningful on text-typed fields.
+- Cannot be combined with `OR` (limitation #11).
+
+**Workaround for reliable text search:**
+- Use semantic search (`operation: "semantic_search"`) when embeddings are
+  configured.
+- Fetch with a broader filter and refine client-side.
+- Normalize the field on write (e.g. store a lowercased copy in a sibling
+  field) and `contains` against the normalized field.
+
+**Planning impact:** Do not promise exact case / accent semantics in user
+stories that depend on `contains`. If the requirement is "find by name
+regardless of accents and case," plan a normalized-field approach or semantic
+search up front.
 
 ## Non-Issues (Things That Work Fine)
 
