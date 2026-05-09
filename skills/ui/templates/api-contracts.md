@@ -54,6 +54,8 @@ X-Tenant-ID: {tenant-slug}
 }
 ```
 
+> **Envelope rule (applies to ALL responses below):** every REST response is `{ success: boolean, data?: ..., error?: ... }`. Always unwrap `json.data` before use. See `reference/auth-patterns.md` → "REST API Response Patterns".
+
 ### Register (if self-registration enabled)
 
 ```http
@@ -116,22 +118,20 @@ X-Tenant-ID: {tenant-slug}
 |-------|-----|------|----------|--------|---------|-------|
 | {display} | {key} | {type} | {yes/no} | {yes/no} | {value} | {notes} |
 
-**Record shape:**
+**Record shape (flat, since v1.26.0):**
 ```json
 {
   "id": "uuid",
   "entityId": "uuid",
-  "name": "{value of name field}",
-  "data": {
-    "{field_key_1}": "{value}",
-    "{field_key_2}": "{value}"
-  },
+  "{field_key_1}": "{value}",
+  "{field_key_2}": "{value}",
+  "{relation_key}": "uuid-of-related-record",
   "createdAt": "ISO-8601",
   "updatedAt": "ISO-8601"
 }
 ```
 
-**IMPORTANT:** Entity field values are in `record.data.{fieldKey}`, NOT `record.{fieldKey}`.
+**IMPORTANT:** Record fields are flat — read them as `record.{fieldKey}`. There is no `record.data` nesting (the old nested format was removed in v1.26.0).
 
 **List:**
 ```http
@@ -140,14 +140,33 @@ X-API-Key: {token}
 X-Tenant-ID: {tenant-slug}
 ```
 
-Response: `{ data: { data: Record[], total, page, limit, totalPages } }`
+Response:
+```json
+{
+  "success": true,
+  "data": {
+    "items": [ { "id": "...", "...": "..." } ],
+    "total": 42,
+    "page": 1,
+    "limit": 20,
+    "totalPages": 3
+  }
+}
+```
+
+> Read the array from `json.data.items` — NOT `json.data` and NOT `json.data.data`.
 
 **Get One:**
 ```http
 GET /api/entities/{entity}/records/{id}
 ```
 
-Response: `{ data: Record }`
+Response:
+```json
+{ "success": true, "data": { "id": "...", "...": "..." } }
+```
+
+> Read the record from `json.data`. `resolve_depth` is NOT supported here — use the list endpoint with `?filters=id = {id}&resolve_depth=1` if you need expanded relations.
 
 **Create:**
 ```http
@@ -157,7 +176,7 @@ Content-Type: application/json
 { "{field_key_1}": "value1", "{field_key_2}": "value2" }
 ```
 
-Response 201: `{ data: Record }`
+Response 201: `{ "success": true, "data": Record }`
 
 **Update:**
 ```http
@@ -167,29 +186,33 @@ Content-Type: application/json
 { "{field_key}": "new_value" }
 ```
 
-Response: `{ data: Record }`
+Response: `{ "success": true, "data": Record }`
 
 **Delete:**
 ```http
 DELETE /api/entities/{entity}/records/{id}
 ```
 
-Response: `{ success: true }`
+Response: `{ "success": true }`
 
 **Search:**
 ```http
 GET /api/entities/{entity}/records?search={query}
 ```
 
-**Filters:**
+**Filters (server-side, AND only):**
 ```http
-GET /api/entities/{entity}/records?filter.{field}={value}
+GET /api/entities/{entity}/records?filters=estado = activo AND monto > 1000
 ```
 
-**Expand relations:**
+For OR conditions, fetch with the AND subset and filter `json.data.items` client-side.
+
+**Expand relations (list endpoint only):**
 ```http
-GET /api/entities/{entity}/records?resolve=true
+GET /api/entities/{entity}/records?resolve_depth=1
 ```
+
+When `resolve_depth=1`, every relation field on each item becomes a full nested object instead of a UUID string — use this whenever the UI needs to show a related entity's name (so you don't render UUIDs). For entities listed below with relations, ALWAYS request `resolve_depth=1` on list views.
 
 ---
 
