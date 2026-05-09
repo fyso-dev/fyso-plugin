@@ -22,6 +22,23 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract a safe, human-readable error message from an HTTP response body.
+ * Avoids leaking stack traces, internal field names, or DB details into logs.
+ */
+function safeErrorMessage(body: string, status: number): string {
+  try {
+    const parsed = JSON.parse(body);
+    const msg = parsed?.error?.message ?? parsed?.error ?? parsed?.message;
+    if (typeof msg === 'string' && msg.length > 0) return msg;
+  } catch {}
+  return `HTTP ${status}`;
+}
+
+// ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
 
@@ -81,7 +98,7 @@ if (!AGENT_ID && AGENT_NAME && TENANT_SLUG && API_KEY) {
       }
     } else {
       const body = await regRes.text().catch(() => '');
-      console.error(`[fyso-channel] Registration failed (${regRes.status}): ${body}`);
+      console.error(`[fyso-channel] Registration failed: ${safeErrorMessage(body, regRes.status)}`);
     }
   } catch (err: any) {
     console.error(`[fyso-channel] Registration error: ${err?.message}`);
@@ -334,7 +351,7 @@ async function startSseBridge(): Promise<() => void> {
 
     if (!response.ok) {
       const body = await response.text().catch(() => '');
-      console.error(`[fyso-channel] SSE HTTP ${response.status}: ${body}`);
+      console.error(`[fyso-channel] SSE HTTP ${response.status}: ${safeErrorMessage(body, response.status)}`);
       if (response.status === 401 || response.status === 403) {
         await mcp.notification({
           method: 'notifications/claude/channel',
