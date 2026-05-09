@@ -32,7 +32,7 @@ This skill does NOT directly activate the channel (channels require a subprocess
 
 1. Reads existing configuration (tenant slug from current session, API key from env)
 2. Validates the configuration is complete
-3. Resolves agent identity: ensures the Fyso (internal) agent exists, then registers the external agent and persists `.fyso-agent`
+3. Resolves agent identity: ensures the Fyso (internal) agent exists, registers the external agent and persists `.fyso-agent`, and best-effort mints a per-agent platform key when only a saved session token is available
 4. Writes `.mcp.json` so the channel server starts with the correct identity on first launch
 5. Outputs the exact `claude --dangerously-load-development-channels` command to run
 
@@ -116,6 +116,34 @@ External registration assigns this session a stable `agent_id` like `cero-a3f2c1
    - Network error: warn the user but continue. The channel server will retry the registration on first launch (`channel-server.ts` already has the same fallback), so the worst case is the original behavior.
 
 Carry the resolved `agent_id` (if any) into Step 5 so it can be written into `.mcp.json` as `FYSO_AGENT_ID`.
+
+#### 3c. Mint a per-agent API key (best-effort)
+
+When the `FYSO_API_KEY` resolved in Step 1 came from the saved plugin session (`~/.fyso/config.json`) — not from an explicit `FYSO_API_KEY` env var — try to mint a dedicated platform key for this agent so `.mcp.json` does not have to reuse the user's session bearer. This is best-effort: if minting fails, keep the session token already resolved.
+
+Skip 3c entirely when:
+- `FYSO_API_KEY` was already supplied via env var (the user picked the key themselves), or
+- `FYSO_AGENT_NAME` is empty (anonymous mode, no per-agent key needed), or
+- The `fyso_auth` MCP tool is not available in this session.
+
+When 3c runs:
+
+1. Ensure the messaging tenant is selected (same call as 3a step 1).
+2. Attempt to mint a key scoped to this agent:
+
+   ```
+   fyso_auth({ action: "create_api_key", apiKeyName: "<FYSO_AGENT_NAME>-channel" })
+   ```
+
+   On success the response includes the new `fyso_pkey_*` value (one-time reveal) — replace the `FYSO_API_KEY` carried into Step 5 with it.
+3. On failure (any of 404, 405, "action not found", or HTTP 5xx from the backend) keep the original `FYSO_API_KEY` from Step 1 and add a single line to the final summary:
+
+   `API key: reusing saved session token (per-agent key creation not yet supported by backend).`
+
+   Do NOT prompt the user for a key, do NOT halt the flow. The session token is already a working bearer for the SSE endpoint and the messaging API, so the channel still works.
+4. On `401`/`403` (stale session) stop with the same instruction as Step 2 — the saved token cannot be used for either path and the user must re-login.
+
+> **Backend status (2026-05):** `fyso_auth({ action: "create_api_key" })` currently returns `404` on app.fyso.dev because platform key creation requires a JWT path that the MCP layer does not yet expose. The graceful-fallback branch above is the expected hot path until the backend lands the action — see fyso-plugin issue #15. Re-running `/fyso:listen` once the backend ships will mint the per-agent key transparently with no skill change.
 
 ### Step 4: Find the channel server path
 
