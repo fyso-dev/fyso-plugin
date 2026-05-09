@@ -13,7 +13,7 @@ Connect this Claude Code session to the Fyso real-time event stream. Events from
 
 - Claude Code v2.1.80 or later
 - `bun` installed (`bun --version` to check, https://bun.sh if not)
-- A valid Fyso API key or JWT for the target tenant
+- An authenticated Fyso session — either an `FYSO_API_KEY` env var, or a saved plugin session at `~/.fyso/config.json` (created by `/sync-team` or any other Fyso login flow)
 - The Fyso plugin installed (`/plugin install fyso@fyso-marketplace`)
 
 ## Usage
@@ -52,10 +52,13 @@ Collect the following values. Use what's already available before asking the use
 | Value | Source (in priority order) |
 |-------|---------------------------|
 | `FYSO_TENANT_SLUG` | `--tenant` arg → active session tenant (from `select_tenant`) → ask user |
-| `FYSO_API_KEY` | env var `FYSO_API_KEY` → ask user |
-| `FYSO_API_URL` | env var `FYSO_API_URL` → default `https://app.fyso.dev` |
+| `FYSO_API_KEY` | env var `FYSO_API_KEY` → `token` field in `~/.fyso/config.json` (active plugin session) → ask user |
+| `FYSO_API_URL` | env var `FYSO_API_URL` → `api_url` field in `~/.fyso/config.json` → default `https://app.fyso.dev` |
 | `FYSO_ENTITIES` | `--entities` arg → env var `FYSO_ENTITIES` → empty (all events) |
 | `FYSO_AGENT_NAME` | `--name` arg → `.fyso-agent` file → derive from directory name → ask user to confirm |
+
+**Active plugin session lookup:**
+Read `~/.fyso/config.json` once and reuse it for both `FYSO_API_KEY` and `FYSO_API_URL`. The file is JSON with shape `{ "token": "...", "tenant_id": "...", "api_url": "...", ... }` and is written by the Fyso plugin during login (e.g. via `/sync-team`). If the file does not exist or the `token` field is empty, fall through to the next source. Do NOT prompt the user for an API key when a saved session token is available — the SSE endpoint accepts the same bearer token used by the plugin.
 
 **Agent name resolution when not provided:**
 If `--name` is not given and no `.fyso-agent` file exists, derive a suggested name from the current directory basename (e.g. `~/agents/cero/` → suggest `cero`, `~/work/fyso/coordinator` → suggest `coordinator`). Present the suggestion to the user and let them confirm or change it. Do NOT default to anonymous — always suggest a name so messaging works out of the box.
@@ -63,8 +66,8 @@ If `--name` is not given and no `.fyso-agent` file exists, derive a suggested na
 ### Step 2: Validate
 
 - `FYSO_TENANT_SLUG` must not be empty
-- `FYSO_API_KEY` must not be empty
-- If either is missing, tell the user what's needed and stop
+- `FYSO_API_KEY` must not be empty. If neither the env var nor `~/.fyso/config.json` has a usable token, tell the user to either export `FYSO_API_KEY` or run the Fyso plugin login (e.g. `/sync-team`) to create `~/.fyso/config.json`, then stop.
+- If `FYSO_TENANT_SLUG` is missing, tell the user what's needed and stop.
 
 ### Step 3: Find the channel server path
 
@@ -360,7 +363,7 @@ Complete chain without external intervention.
 
 | Problem | Solution |
 |---------|----------|
-| Auth failed (401) | Check `FYSO_API_KEY` in `~/.claude/channels/fyso/.env` |
+| Auth failed (401) | Check `FYSO_API_KEY` in `.mcp.json` for the `fyso-channel` server. If it was sourced from `~/.fyso/config.json`, the saved session may have expired — re-run the Fyso plugin login (e.g. `/sync-team`) to refresh the token and re-run `/fyso:listen`. |
 | Tenant not found (404) | Check `FYSO_TENANT_SLUG` |
 | Channel not registering | Make sure `bun` is installed and you used `--dangerously-load-development-channels` |
 | No events arriving | Verify entity filter isn't too narrow; try without `--entities` |
