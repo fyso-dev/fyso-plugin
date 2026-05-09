@@ -1258,7 +1258,7 @@ URL: http://localhost:4321
 Build: bun run build → dist/
 
 Next steps:
-  - /fyso:deploy to publish to sites.fyso.dev
+  - /fyso:release deploy to publish to sites.fyso.dev
   - Customize styles in src/styles/global.css
   - Add custom pages in src/pages/
 ```

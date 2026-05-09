@@ -155,9 +155,9 @@ Created:
   - 15 example records
 
 Next steps:
-  - /fyso-add-entity to add more entities
-  - /fyso-deploy to publish your app
-  - /fyso-publish to share it in the catalog
+  - /fyso:entity add to add more entities
+  - /fyso:release deploy to publish your app
+  - /fyso:release publish to share it in the catalog
 ```
 
 ## Design Principles

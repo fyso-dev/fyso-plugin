@@ -174,9 +174,9 @@ Everything is published and live.
 Then suggest natural next steps — pick the ones that fit their app:
 
 - `/fyso:ui` — build a frontend so your team can use it
-- `/fyso:expose` — create API channels to connect external tools
+- `/fyso:api expose` — create API channels to connect external tools
 - `/fyso:rules` — add more business logic (validations, transforms, automations)
-- `/fyso:add-entity` — add more entities as your needs grow
+- `/fyso:entity add` — add more entities as your needs grow
 
 End with a short, genuine encouragement. Not corporate. Not a slogan. Something honest — like you're proud of what they just built.
 

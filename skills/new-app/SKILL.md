@@ -69,7 +69,7 @@ publish_entity({ entityName: "...", version_message: "Initial import from prebui
 
 **Without prebuild (blank):**
 
-The tenant starts empty. Suggest using `/fyso-add-entity` to create the first entity.
+The tenant starts empty. Suggest using `/fyso:entity add` to create the first entity.
 
 ### Step 5: Show summary
 
@@ -98,8 +98,8 @@ Business rules:
 Example data loaded: 3 customers, 5 jobs, 10 parts, 2 invoices
 
 Next steps:
-  - /fyso-add-entity to add more entities
-  - /fyso-deploy to publish your app
+  - /fyso:entity add to add more entities
+  - /fyso:release deploy to publish your app
 ```
 
 ## Important

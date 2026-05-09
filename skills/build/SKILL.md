@@ -185,7 +185,7 @@ Gaps: (none or list)
 Next steps:
   - Verify: /fyso:verify phase N
   - Continue: /fyso:plan phase N+1
-  - Check state: /fyso:status
+  - Check state: /fyso:inspect status
 ```
 
 ## Critical Rules

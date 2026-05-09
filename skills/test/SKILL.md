@@ -179,7 +179,7 @@ const longExpr = Array(1000).fill("x + 1").join(" + ");
 Si todos pasan:
 ```
 ✅ Todos los tests pasaron. El sistema está listo.
-¿Quieres desplegarlo? Usa /fyso-deploy
+¿Quieres desplegarlo? Usa /fyso:release deploy
 ```
 
 Si alguno falla:
