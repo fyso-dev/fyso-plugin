@@ -74,7 +74,7 @@ export function createTracker() {
 
       const payload: Record<string, unknown> = {
         ...event,
-        timestamp: new Date().toISOString() + "Z",
+        timestamp: new Date().toISOString(),
       }
       // Remove null/undefined
       for (const key of Object.keys(payload)) {
