@@ -1,7 +1,7 @@
 import { readConfig, readTeamConfig, apiRequest } from "../config"
 import { readFile, writeFile, mkdir, rm } from "fs/promises"
 import { existsSync } from "fs"
-import { join } from "path"
+import { join, resolve, sep } from "path"
 
 interface Agent {
   name: string
@@ -28,6 +28,20 @@ function getColor(role: string): string {
     if (lower.includes(key)) return color
   }
   return "gray"
+}
+
+export function safeAgentFilePath(dir: string, name: string): string | null {
+  if (!name) return null
+  if (name.includes("/") || name.includes("\\") || name.includes("\0")) return null
+  if (name === "." || name === "..") return null
+
+  const filePath = join(dir, `${name}.md`)
+  const resolvedDir = resolve(dir)
+  const resolvedFile = resolve(filePath)
+  const prefix = resolvedDir.endsWith(sep) ? resolvedDir : resolvedDir + sep
+  if (resolvedFile !== join(resolvedDir, `${name}.md`)) return null
+  if (!resolvedFile.startsWith(prefix)) return null
+  return filePath
 }
 
 function firstLineOf(text: string, fallback: string): string {
@@ -101,7 +115,11 @@ export async function syncAgentsToDirectory(
   await mkdir(claudeDir, { recursive: true })
 
   for (const agent of agents) {
-    const filePath = join(claudeDir, `${agent.name}.md`)
+    const filePath = safeAgentFilePath(claudeDir, agent.name)
+    if (!filePath) {
+      console.warn(`[fyso] Skipping agent with unsafe name: ${JSON.stringify(agent.name)}`)
+      continue
+    }
     if (existsSync(filePath)) await rm(filePath)
     const color = getColor(agent.role)
     const firstLine = firstLineOf(agent.soul, agent.display_name)
@@ -131,7 +149,11 @@ ${agent.system_prompt}
   await mkdir(opencodeDir, { recursive: true })
 
   for (const agent of agents) {
-    const filePath = join(opencodeDir, `${agent.name}.md`)
+    const filePath = safeAgentFilePath(opencodeDir, agent.name)
+    if (!filePath) {
+      console.warn(`[fyso] Skipping agent with unsafe name: ${JSON.stringify(agent.name)}`)
+      continue
+    }
     if (existsSync(filePath)) await rm(filePath)
     const color = getColor(agent.role)
     const content = `---
