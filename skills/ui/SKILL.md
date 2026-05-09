@@ -514,12 +514,14 @@ Write `.planning/UI-CONTRACTS.md`:
 
 ## Authentication Endpoints
 
+> All responses are wrapped in `{ success, data }` — `Response:` below shows the **unwrapped** `data` payload.
+
 ### Login
 ```
 POST /api/auth/tenant/login
 Headers: X-Tenant-ID: {slug}
 Body: { email, password }
-Response: { token, user: { id, email, name, role } }
+Response data: { token, user: { id, email, name, role } }
 ```
 
 ### Register (if self-registration)
@@ -527,7 +529,7 @@ Response: { token, user: { id, email, name, role } }
 POST /api/auth/tenant/register
 Headers: X-Tenant-ID: {slug}
 Body: { email, password, name }
-Response: { token, user: { id, email, name, role } }
+Response data: { token, user: { id, email, name, role } }
 ```
 
 ### Logout
@@ -540,7 +542,7 @@ Headers: X-API-Key: {token}, X-Tenant-ID: {slug}
 ```
 GET /api/auth/tenant/me
 Headers: X-API-Key: {token}, X-Tenant-ID: {slug}
-Response: { id, email, name, role, permissions }
+Response data: { id, email, name, role, permissions }
 ```
 
 ## Data Endpoints
@@ -556,29 +558,33 @@ Response: { id, email, name, role, permissions }
 
 **List:**
 ```
-GET /api/entities/{entity}/records?page=1&limit=20&sort=name&order=asc
+GET /api/entities/{entity}/records?page=1&limit=20&sort=name&order=asc&resolve_depth=1
 Headers: X-API-Key: {token}, X-Tenant-ID: {slug}
-Response: { data: Record[], total, page, limit, totalPages }
+Response data: { items: Record[], total, page, limit, totalPages }
 ```
+
+Read records from `data.items` — NOT `data.data`. Pass `resolve_depth=1` for entities with relations so related fields become nested objects (with names) instead of UUID strings.
 
 **Get One:**
 ```
 GET /api/entities/{entity}/records/{id}
-Response: { id, entityId, name, data: { ...fields }, createdAt, updatedAt }
+Response data: { id, entityId, ...fields, createdAt, updatedAt }
 ```
+
+Records are flat (since v1.26.0): read fields as `record.fieldKey`, never `record.data.fieldKey`. `resolve_depth` is not supported on this endpoint — use the list endpoint with an id filter if you need expanded relations.
 
 **Create:**
 ```
 POST /api/entities/{entity}/records
 Body: { field1: value1, field2: value2 }
-Response: { id, data: { ...fields } }
+Response data: { id, ...fields }
 ```
 
 **Update:**
 ```
 PUT /api/entities/{entity}/records/{id}
 Body: { field1: newValue }
-Response: { id, data: { ...fields } }
+Response data: { id, ...fields }
 ```
 
 **Delete:**
@@ -586,6 +592,8 @@ Response: { id, data: { ...fields } }
 DELETE /api/entities/{entity}/records/{id}
 Response: { success: true }
 ```
+
+**Filters:** the REST API supports AND-only compound filters via `?filters=field1 = value AND field2 > N`. For OR conditions, fetch the AND subset and filter `data.items` client-side.
 
 ## Role → Permission Matrix
 
@@ -672,13 +680,21 @@ The generated UI uses:
 - **State:** React context for auth + custom hooks for data fetching
 - **Icons:** Lucide React
 
-**Do NOT use `@fyso/ui`.** Generate custom components that call the Fyso API directly:
+**Do NOT use `@fyso/ui`.** Generate custom components that call the Fyso API directly.
+
+**REST envelope contract (must follow — see `reference/auth-patterns.md` → "REST API Response Patterns"):**
+- Every response is `{ success: boolean, data?: ..., error?: { code, message } }`. Always unwrap `json.data` before returning to callers.
+- List endpoints return `data: { items, total, page, limit, totalPages }` — read the array from `data.items`, NOT `data.data` and NOT `data.records`.
+- Records are flat (since v1.26.0): read fields as `record.fieldKey`, never `record.data.fieldKey`.
+- For list views of entities with relations, always pass `resolve_depth=1` so the UI renders related names instead of UUIDs.
+- The REST API only supports AND filters; for OR, fetch with AND and filter `data.items` client-side.
+
 ```ts
 // src/lib/api.ts
 const BASE = import.meta.env.PUBLIC_API_URL   // e.g. https://app.fyso.dev
 const TENANT = import.meta.env.PUBLIC_TENANT  // tenant slug
 
-async function apiFetch(path: string, options: RequestInit = {}, token?: string) {
+async function apiFetch<T = unknown>(path: string, options: RequestInit = {}, token?: string): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     ...options,
     headers: {
@@ -688,24 +704,61 @@ async function apiFetch(path: string, options: RequestInit = {}, token?: string)
       ...options.headers,
     },
   })
-  if (!res.ok) throw await res.json()
-  return res.json()
+  const json = await res.json()
+  if (!res.ok || json.success === false) {
+    throw new Error(json.error?.message ?? json.error?.code ?? `HTTP ${res.status}`)
+  }
+  // Unwrap the { success, data } envelope so callers always see plain data.
+  return json.data as T
+}
+
+// Build the query string for list calls. Pass `resolveDepth: 1` whenever
+// the entity has relations and the UI needs the related names, otherwise
+// the UI will render UUIDs.
+function listQuery(params: { page?: number; limit?: number; sort?: string; order?: 'asc' | 'desc'; search?: string; filters?: string; resolveDepth?: number } = {}) {
+  const qs = new URLSearchParams()
+  if (params.page) qs.set('page', String(params.page))
+  if (params.limit) qs.set('limit', String(params.limit))
+  if (params.sort) qs.set('sort', params.sort)
+  if (params.order) qs.set('order', params.order)
+  if (params.search) qs.set('search', params.search)
+  if (params.filters) qs.set('filters', params.filters)
+  if (params.resolveDepth) qs.set('resolve_depth', String(params.resolveDepth))
+  return qs.toString()
+}
+
+export interface ListResponse<R = Record<string, unknown>> {
+  items: R[]
+  total: number
+  page: number
+  limit: number
+  totalPages: number
 }
 
 export const api = {
   login: (email: string, password: string) =>
-    apiFetch('/api/auth/tenant/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
-  me: (token: string) => apiFetch('/api/auth/tenant/me', {}, token),
-  list: (entity: string, token: string, params = '') =>
-    apiFetch(`/api/entities/${entity}/records?${params}`, {}, token),
-  get: (entity: string, id: string, token: string) =>
-    apiFetch(`/api/entities/${entity}/records/${id}`, {}, token),
-  create: (entity: string, data: object, token: string) =>
-    apiFetch(`/api/entities/${entity}/records`, { method: 'POST', body: JSON.stringify(data) }, token),
-  update: (entity: string, id: string, data: object, token: string) =>
-    apiFetch(`/api/entities/${entity}/records/${id}`, { method: 'PUT', body: JSON.stringify(data) }, token),
+    apiFetch<{ token: string; user: User }>(
+      '/api/auth/tenant/login',
+      { method: 'POST', body: JSON.stringify({ email, password }) },
+    ),
+  me: (token: string) => apiFetch<User>('/api/auth/tenant/me', {}, token),
+
+  // Returns { items, total, page, limit, totalPages } — already unwrapped from
+  // the { success, data } envelope by apiFetch.
+  list: <R = Record<string, unknown>>(entity: string, token: string, params: Parameters<typeof listQuery>[0] = {}) =>
+    apiFetch<ListResponse<R>>(`/api/entities/${entity}/records?${listQuery(params)}`, {}, token),
+
+  get: <R = Record<string, unknown>>(entity: string, id: string, token: string) =>
+    apiFetch<R>(`/api/entities/${entity}/records/${id}`, {}, token),
+
+  create: <R = Record<string, unknown>>(entity: string, data: object, token: string) =>
+    apiFetch<R>(`/api/entities/${entity}/records`, { method: 'POST', body: JSON.stringify(data) }, token),
+
+  update: <R = Record<string, unknown>>(entity: string, id: string, data: object, token: string) =>
+    apiFetch<R>(`/api/entities/${entity}/records/${id}`, { method: 'PUT', body: JSON.stringify(data) }, token),
+
   remove: (entity: string, id: string, token: string) =>
-    apiFetch(`/api/entities/${entity}/records/${id}`, { method: 'DELETE' }, token),
+    apiFetch<{ id: string }>(`/api/entities/${entity}/records/${id}`, { method: 'DELETE' }, token),
 }
 ```
 
@@ -817,6 +870,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [token])
 
   const login = async (email: string, password: string) => {
+    // api.login returns the unwrapped { token, user } payload (envelope handled in api.ts).
     const { token: t, user: u } = await api.login(email, password)
     localStorage.setItem('fyso_token', t)
     setToken(t); setUser(u)
@@ -831,16 +885,21 @@ export const useAuth = () => useContext(AuthContext)!
 **Entity list with pagination:**
 ```tsx
 // EntityList.tsx
-export function EntityList({ entity }: { entity: string }) {
-  const { token, user } = useAuth()
-  const [records, setRecords] = useState([])
+//
+// Pass `hasRelations` for entities whose schema has at least one relation field
+// (query `get_entity_schema` during build to detect this). When true we request
+// `resolve_depth=1` so the table can show related names instead of UUIDs.
+export function EntityList({ entity, hasRelations }: { entity: string; hasRelations?: boolean }) {
+  const { token } = useAuth()
+  const [records, setRecords] = useState<Record<string, unknown>[]>([])
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
 
   useEffect(() => {
-    api.list(entity, token!, `page=${page}&limit=20`)
-      .then(r => { setRecords(r.data); setTotal(r.total) })
-  }, [entity, page, token])
+    // api.list returns the already-unwrapped { items, total, page, limit, totalPages } payload.
+    api.list(entity, token!, { page, limit: 20, resolveDepth: hasRelations ? 1 : undefined })
+      .then(r => { setRecords(r.items); setTotal(r.total) })
+  }, [entity, page, token, hasRelations])
 
   return (
     <div>
@@ -849,6 +908,15 @@ export function EntityList({ entity }: { entity: string }) {
     </div>
   )
 }
+```
+
+**Reading record fields:** records are flat. To show a related entity's name, request `resolveDepth: 1` and read `record.{relationKey}.{nameField}` (e.g. `record.cliente.nombre`). Without `resolve_depth` the relation field is a UUID string.
+
+**Client-side OR filtering:** the REST API supports AND-only compound filters. For OR conditions, fetch the AND subset on the server and filter `r.items` in the component:
+
+```tsx
+const r = await api.list('facturas', token!, { filters: 'estado = pendiente' })
+const visible = r.items.filter(f => f.estado === 'pendiente' || f.estado === 'vencida')
 ```
 
 **Create/edit form:**
