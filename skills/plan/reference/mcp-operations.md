@@ -274,7 +274,17 @@ fyso_data({
 
 Filter operators: =, !=, >, <, >=, <=, contains
 Compound: AND only (OR not supported server-side)
-Example: fyso_data({ action: "query", entity: "productos", filters: "nombre contains cafe" })
+
+`contains` examples:
+```
+fyso_data({ action: "query", entity: "productos", filters: "nombre contains cafe" })
+fyso_data({ action: "query", entity: "productos", filters: "nombre contains cafe AND precio >= 100" })
+```
+
+`contains` notes: substring match on text fields; case sensitivity and
+accent / Unicode collation are not formally specified — test against your data.
+No wildcards (`%`, `*`, `_` match literally). For guaranteed text search,
+prefer semantic search or a normalized-field approach (see limitation #15).
 
 ### update
 Update a record.
