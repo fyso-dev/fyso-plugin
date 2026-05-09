@@ -90,16 +90,16 @@ If field B depends on field A (e.g., `tax = subtotal * 0.21`, `total = subtotal 
 
 **Planning impact:** When designing rules with compute chains, specify the exact field order in the plan.
 
-### 7. generate_entity vs create_entity + create_field
+### 7. fyso_schema: generate vs add_field
 
 **Impact:** Low
 **Affects:** Entity creation approach
 
-`generate_entity` creates an entity with all fields in one call. There is no separate `create_entity` + `create_field` flow in the MCP.
+`fyso_schema({ action: "generate" })` creates an entity with all fields in one call. Use `fyso_schema({ action: "add_field" })` to add individual fields to an existing (draft or published) entity.
 
-**Workaround:** Use `generate_entity` with the complete field list.
+**Workaround:** Use `generate` with the complete field list for initial creation. Use `add_field` for incremental additions.
 
-**Planning impact:** Plans should use `generate_entity` with the full field definition, not individual field creation calls.
+**Planning impact:** Plans should use `generate` with the full field definition for new entities, and `add_field` for subsequent field additions.
 
 ### 8. Business rule DSL expression limitations
 
@@ -118,6 +118,69 @@ The expression parser has some limitations:
 - Use `conditional` type for branching logic
 
 **Planning impact:** Design rules with simple, testable expressions. Avoid complex date math.
+
+### 9. deploy_static_site response `url` field is wrong
+
+**Impact:** High
+**Affects:** Static site deployment
+
+The `deploy` action response `url` field returns `{slug}.fyso.dev` (without `-sites`). The real URL is `{slug}-sites.fyso.dev`.
+
+**Workaround:** Always use `{slug}-sites.fyso.dev` as the actual URL. Ignore the response `url` field.
+
+### 10. Fyso static hosting ignores `_redirects` — SPA routes 404
+
+**Impact:** High
+**Affects:** Single-page apps using BrowserRouter
+
+Fyso static hosting does not process `_redirects` files. BrowserRouter SPA routes return 404 on direct access or refresh.
+
+**Workaround:** Use Astro (generates per-route `index.html`) or HashRouter for SPAs.
+
+### 11. OR filters not supported server-side
+
+**Impact:** Medium
+**Affects:** Data queries requiring OR conditions
+
+The REST API and fyso_data `query` action only support AND compound filters. There is no server-side OR operator.
+
+**Workaround:** Fetch records with the broadest applicable filter and apply OR conditions client-side after receiving results.
+
+### 12. resolve_depth only works on list endpoints
+
+**Impact:** Low
+**Affects:** Single record fetches with related entity resolution
+
+`resolve_depth` only works on `GET /records` (list) and `fyso_data({ action: "query" })`. It does NOT work on `GET /records/:id` (single record fetch).
+
+**Workaround:** After fetching a single record, make separate `GET /records/:id` calls for each related entity UUID you need to resolve.
+
+### 13. No aggregation queries (SUM, COUNT, AVG)
+
+**Impact:** Medium
+**Affects:** Dashboard KPIs, totals, statistical summaries
+
+Fyso has no server-side aggregation. There are no SUM, COUNT, AVG, GROUP BY query operations.
+
+**Workaround:** Fetch all relevant records (using pagination if needed) and compute aggregations client-side.
+
+### 14. Agent REST endpoint returns 401 with user tokens
+
+**Impact:** High
+**Affects:** Calling `/api/agents/{slug}/run` from client-side code
+
+The agent REST endpoint is not accessible with user session tokens. Requests return 401 regardless of role.
+
+**Workaround:** Use MCP `fyso_agents({ action: "run" })` instead. For client-side use, route through a backend proxy that calls the MCP tool server-side.
+
+### 15. `contains` filter behavior undocumented
+
+**Impact:** Medium
+**Affects:** Text search queries using `contains` operator
+
+The `contains` operator is accepted by the query engine but its case sensitivity, partial-match behavior, and Unicode handling are not formally documented.
+
+**Workaround:** Test with your data; case sensitivity varies. For reliable text search, consider using semantic search or fetching all records and filtering client-side.
 
 ## Non-Issues (Things That Work Fine)
 

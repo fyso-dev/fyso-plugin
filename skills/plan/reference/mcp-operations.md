@@ -1,28 +1,35 @@
-# Fyso MCP Operations — Quick Reference
+# Fyso MCP Operations -- Quick Reference
 
-Complete reference of MCP tools available for planning and execution.
+Complete reference of grouped MCP tools available for planning and execution.
+Fyso exposes **10 grouped tools** via MCP. Each accepts an `action` parameter.
 
-## Tenant Management
+## Tenant Management (fyso_auth)
 
 ### select_tenant
-Select a tenant to operate on.
+Select a tenant to operate on. **Must be called before any other operation.**
 ```
-select_tenant({ tenantSlug: "mi-consultorio" })
+fyso_auth({ action: "select_tenant", tenantSlug: "mi-consultorio" })
 ```
-**Must be called before any other operation.**
 
 ### list_tenants
 List available tenants.
 ```
-list_tenants()
+fyso_auth({ action: "list_tenants" })
 ```
 
-## Entity Operations
+### create_tenant
+Create a new app (enforces plan limits).
+```
+fyso_auth({ action: "create_tenant", name: "Mi App", description: "..." })
+```
 
-### generate_entity
+## Entity Operations (fyso_schema)
+
+### generate (create entity)
 Create an entity with all its fields in one call.
 ```
-generate_entity({
+fyso_schema({
+  action: "generate",
   definition: {
     entity: {
       name: "invoices",           // lowercase, plural
@@ -31,13 +38,13 @@ generate_entity({
     },
     fields: [
       {
-        name: "Customer",           // display name
-        fieldKey: "customer",       // programmatic key
-        fieldType: "relation",      // see field types below
+        name: "Customer",
+        fieldKey: "customer",
+        fieldType: "relation",
         isRequired: true,
         config: {
-          entity: "customers",      // relation target
-          displayField: "name"      // what to show in UI
+          entity: "customers",
+          displayField: "name"
         }
       },
       {
@@ -63,62 +70,98 @@ generate_entity({
       }
     ]
   },
-  auto_publish: false,              // create as draft
+  auto_publish: false,
   version_message: "Create invoices entity"
 })
 ```
 
-### list_entities
+### list
 List all entities in the tenant.
 ```
-list_entities({ include_drafts: true })
+fyso_schema({ action: "list", include_drafts: true })
 ```
 
-### get_entity_schema
+### get
 Get field details for an entity.
 ```
-get_entity_schema({ entityName: "invoices" })
+fyso_schema({ action: "get", entityName: "invoices" })
 ```
 
-### publish_entity
+### add_field
+Add a field to a published entity.
+```
+fyso_schema({ action: "add_field", entityName: "invoices", name: "Notes", fieldKey: "notes", fieldType: "textarea" })
+```
+
+### publish
 Publish a draft entity.
 ```
-publish_entity({
+fyso_schema({
+  action: "publish",
   entityName: "invoices",
   version_message: "Initial publish with all fields"
 })
 ```
 
-### list_entity_changes
-See pending changes on a draft entity.
+### discard
+Discard pending draft changes.
 ```
-list_entity_changes({ entityName: "invoices" })
+fyso_schema({ action: "discard", entityName: "invoices" })
 ```
+
+### delete
+Delete an entity.
+```
+fyso_schema({ action: "delete", entityName: "invoices", confirm: true })
+```
+
+### list_changes
+See pending changes across entities.
+```
+fyso_schema({ action: "list_changes", include_published: false })
+```
+
+### list_presets
+List available industry presets.
+```
+fyso_schema({ action: "list_presets" })
+```
+
+### install_preset
+Install a complete industry preset (entities + fields + rules).
+```
+fyso_schema({ action: "install_preset", preset_name: "clinica" })
+```
+Available presets: `taller`, `tienda`, `clinica`, `freelancer`.
 
 ## Field Types
 
 | Type | Config | Example |
 |------|--------|---------|
-| `text` | — | names, titles, codes |
+| `text` | -- | names, titles, codes |
+| `textarea` | -- | long descriptions |
 | `number` | `{ decimals: 0 }` | quantities, stock |
 | `number` | `{ decimals: 2 }` | prices, totals, money |
-| `email` | — | email addresses |
-| `phone` | — | phone numbers |
-| `date` | — | dates |
-| `boolean` | — | yes/no flags |
+| `email` | -- | email addresses |
+| `phone` | -- | phone numbers |
+| `date` | -- | dates |
+| `boolean` | -- | yes/no flags |
 | `select` | `{ options: ["a", "b"] }` | status, type, category |
 | `relation` | `{ entity: "...", displayField: "..." }` | foreign keys |
+| `file` | -- | file uploads |
+| `location` | -- | geographic coordinates |
 
-## Business Rule Operations
+## Business Rule Operations (fyso_rules)
 
-### create_business_rule
+### create
 Create a rule with explicit DSL.
 ```
-create_business_rule({
+fyso_rules({
+  action: "create",
   entityName: "invoices",
   name: "Calculate tax and total",
   description: "Compute tax from subtotal * rate, then total",
-  triggerType: "field_change",        // or "before_save", "after_save"
+  triggerType: "field_change",
   triggerFields: ["subtotal", "tax_rate"],
   ruleDsl: {
     compute: {
@@ -141,35 +184,26 @@ create_business_rule({
 })
 ```
 
-### generate_business_rule
-Generate a rule from natural language.
-```
-generate_business_rule({
-  entityName: "invoices",
-  prompt: "When subtotal or tax_rate changes, calculate tax = subtotal * tax_rate / 100 and total = subtotal + tax",
-  auto_publish: false
-})
-```
-
-### list_business_rules
+### list
 List rules for an entity.
 ```
-list_business_rules({ entityName: "invoices" })
+fyso_rules({ action: "list", entityName: "invoices", include_drafts: true })
 ```
 
-### get_business_rule
+### get
 Get rule details.
 ```
-get_business_rule({ entityName: "invoices", ruleId: "uuid" })
+fyso_rules({ action: "get", entityName: "invoices", ruleId: "uuid" })
 ```
 
-### test_business_rule
+### test
 Test a rule with sample data.
 ```
-test_business_rule({
+fyso_rules({
+  action: "test",
   entityName: "invoices",
   ruleId: "uuid",
-  testContext: {
+  testData: {
     subtotal: 1000,
     tax_rate: 21
   }
@@ -177,25 +211,32 @@ test_business_rule({
 // Expected: { tax: 210, total: 1210 }
 ```
 
-### publish_business_rule
+### publish
 Publish a draft rule.
 ```
-publish_business_rule({ entityName: "invoices", ruleId: "uuid" })
+fyso_rules({ action: "publish", entityName: "invoices", ruleId: "uuid" })
 ```
 
-### delete_business_rule
+### delete
 Delete a rule.
 ```
-delete_business_rule({ entityName: "invoices", ruleId: "uuid" })
+fyso_rules({ action: "delete", entityName: "invoices", ruleId: "uuid" })
 ```
 
-## Record Operations
+### logs
+View rule execution history.
+```
+fyso_rules({ action: "logs", entityName: "invoices", ruleId: "uuid", limit: 20 })
+```
 
-### create_record
+## Record Operations (fyso_data)
+
+### create
 Create a new record.
 ```
-create_record({
-  entityName: "invoices",
+fyso_data({
+  action: "create",
+  entity: "invoices",
   data: {
     customer: "customer-uuid",
     date: "2026-02-25",
@@ -206,129 +247,175 @@ create_record({
 })
 ```
 
-### query_records
-Query records with pagination and filters.
+### query
+Query records with filters, pagination, and semantic search.
 ```
-query_records({
-  entityName: "invoices",
-  limit: 10,
-  page: 1,
+fyso_data({
+  action: "query",
+  entity: "invoices",
+  filters: "status = paid AND date >= 2026-01-01",
   sort: "date",
-  order: "desc",
-  filters: { status: "paid" }
+  order_dir: "desc",
+  limit: 10,
+  offset: 0,
+  resolve_depth: 1
 })
 ```
 
-### update_record
+Semantic search:
+```
+fyso_data({
+  action: "query",
+  entity: "invoices",
+  semantic: "facturas pendientes del ultimo mes",
+  min_similarity: 0.5
+})
+```
+
+Filter operators: =, !=, >, <, >=, <=, contains
+Compound: AND only (OR not supported server-side)
+Example: fyso_data({ action: "query", entity: "productos", filters: "nombre contains cafe" })
+
+### update
 Update a record.
 ```
-update_record({
-  entityName: "invoices",
-  id: "record-uuid",
-  data: { status: "paid" }
-})
+fyso_data({ action: "update", entity: "invoices", id: "record-uuid", data: { status: "paid" } })
 ```
 
-### delete_record
+### delete
 Delete a record.
 ```
-delete_record({
-  entityName: "invoices",
-  id: "record-uuid"
-})
+fyso_data({ action: "delete", entity: "invoices", id: "record-uuid" })
 ```
 
-## Metadata Operations
-
-### export_metadata
-Export the entire tenant schema as JSON.
+### Bookings
 ```
-export_metadata({ tenantId: "mi-consultorio" })
-```
-Returns a JSON snapshot of all entities, fields, and rules.
-
-### import_metadata
-Import a metadata snapshot into a tenant.
-```
-import_metadata({
-  metadata: "<JSON string>",
-  tenantId: "mi-consultorio"
-})
+fyso_data({ action: "get_slots", professional_id: "uuid", date: "2026-03-15" })
+fyso_data({ action: "create_booking", professional_id: "uuid", patient_id: "uuid", date: "2026-03-15", time: "10:00", duration: 30 })
 ```
 
-## Channel Operations
+## Metadata & API (fyso_meta)
 
-### publish_channel
-Create/publish a channel.
+### api_spec
+Get REST API documentation.
 ```
-publish_channel({
-  name: "Consultorio API",
-  description: "API for the clinic",
-  tags: ["health", "clinic"]
-})
+fyso_meta({ action: "api_spec", entities: ["invoices"], includeExamples: true })
 ```
 
-### define_channel_tool
-Define a tool on a channel.
+### api_client
+Generate typed API client code.
 ```
-define_channel_tool({
-  channelId: "uuid",
-  toolName: "buscar-pacientes",
-  description: "Search patients by name or DNI",
-  parameters: {
-    query: { type: "string", description: "Search text", required: true }
-  },
-  entityMapping: {
-    entity: "pacientes",
-    operation: "semantic_search"
-  }
-})
+fyso_meta({ action: "api_client", entities: ["invoices"], framework: "react" })
 ```
 
-### set_channel_permissions
-Configure channel access.
+### export / import
 ```
-set_channel_permissions({
-  channelId: "uuid",
-  config: {
-    public: true,
-    allowedOperations: ["query", "read", "create", "update"]
-  }
-})
+fyso_meta({ action: "export", tenantId: "mi-consultorio" })
+fyso_meta({ action: "import", tenantId: "mi-consultorio", data: "<JSON string>" })
 ```
 
-### search_channels
-Discover channels.
+### usage
+View billing and usage metrics.
 ```
-search_channels({ query: "clinic", tags: ["health"] })
-```
-
-### get_channel_tools
-List tools on a channel.
-```
-get_channel_tools({ channelId: "uuid" })
+fyso_meta({ action: "usage" })
 ```
 
-### execute_channel_tool
-Execute a tool on a channel.
+### Secrets
 ```
-execute_channel_tool({
-  channelId: "uuid",
-  toolName: "buscar-pacientes",
-  params: { query: "García" }
-})
+fyso_meta({ action: "set_secret", key: "OPENAI_API_KEY", value: "sk-..." })
+fyso_meta({ action: "delete_secret", key: "OPENAI_API_KEY" })
 ```
 
-## Custom Fields
-
-### manage_custom_fields
-CRUD for custom (non-system) fields.
+### feedback
+Report bugs or suggestions directly from MCP.
 ```
-manage_custom_fields({
-  action: "list" | "add" | "update" | "delete",
-  entityName: "products",
-  type: "custom" | "system" | "all",       // for list
-  fieldData: { ... },                       // for add/update
-  fieldId: "uuid"                           // for update/delete
-})
+fyso_meta({ action: "feedback", feedback_type: "bug", title: "Short summary", description: "Details...", context: "fyso_data query" })
+```
+
+## AI Agents (fyso_agents)
+
+### Create and manage agents
+```
+fyso_agents({ action: "list" })
+fyso_agents({ action: "create", name: "Support Bot", system_prompt: "You are a helpful assistant...", fallback_mode: "llm", tools_scope: { clients: ["query"], invoices: ["query", "create"] }, knowledge_enabled: true })
+fyso_agents({ action: "update", slug: "support-bot", system_prompt: "Updated prompt..." })
+fyso_agents({ action: "delete", slug: "support-bot" })
+```
+
+### Run and test agents
+```
+fyso_agents({ action: "run", agent_slug: "support-bot", message: "How many open invoices?", session_id: "optional-session" })
+fyso_agents({ action: "test", agent_slug: "support-bot", message: "Test query" })  // dry-run
+```
+
+### Version management
+```
+fyso_agents({ action: "list_versions", agent_id: "uuid" })
+fyso_agents({ action: "rollback", agent_id: "uuid", version: 2 })
+```
+
+### Execution history
+```
+fyso_agents({ action: "list_runs", agent_id: "uuid", status: "success", limit: 50 })
+```
+
+### Templates
+```
+fyso_agents({ action: "list_templates" })
+fyso_agents({ action: "from_template", template_id: "support", name: "My Support Bot" })
+```
+
+## AI Providers & Templates (fyso_ai)
+
+### Provider management
+```
+fyso_ai({ action: "list_providers" })
+fyso_ai({ action: "add_provider", name: "OpenAI", base_url: "https://api.openai.com/v1", api_key: "sk-...", default_model: "gpt-4o" })
+fyso_ai({ action: "configure_provider", name: "OpenAI", type: "openai", base_url: "...", api_key: "...", default_model: "gpt-4o" })
+fyso_ai({ action: "remove_provider", provider_id: "uuid" })
+```
+
+### Test calls
+```
+fyso_ai({ action: "test_call", prompt: "Hello", model: "gpt-4o", max_tokens: 256, temperature: 0.7 })
+```
+
+### Call logs
+```
+fyso_ai({ action: "call_logs", provider: "OpenAI", status: "success", limit: 50 })
+fyso_ai({ action: "debug_log", log_id: "uuid" })
+```
+
+### Prompt templates
+```
+fyso_ai({ action: "list_templates" })
+fyso_ai({ action: "create_template", name: "Greeting", slug: "greeting", type: "prompt", content: "Hello {{name}}, welcome to {{company}}", variables: ["name", "company"] })
+fyso_ai({ action: "update_template", id: "uuid", content: "Updated template..." })
+```
+
+## Views (fyso_views)
+
+```
+fyso_views({ action: "create", entitySlug: "invoices", slug: "overdue-invoices", name: "Overdue", filterDsl: { validate: [{ condition: "status == overdue" }] } })
+fyso_views({ action: "list" })
+fyso_views({ action: "update", slug: "overdue-invoices", isActive: false })
+fyso_views({ action: "delete", slug: "overdue-invoices" })
+```
+
+## Knowledge Base (fyso_knowledge)
+
+```
+fyso_knowledge({ action: "search", query: "politica de reembolsos", limit: 5, threshold: 0.3 })
+fyso_knowledge({ action: "stats" })
+fyso_knowledge({ action: "search_docs", query: "how to create entity", topic: "entities" })
+```
+
+## Deploy (fyso_deploy)
+
+```
+fyso_deploy({ action: "deploy", subdomain: "mi-app", path: "/path/to/dist" })
+fyso_deploy({ action: "list" })
+fyso_deploy({ action: "delete", subdomain: "mi-app" })
+fyso_deploy({ action: "set_domain", subdomain: "mi-app", domain: "app.miempresa.com" })
+fyso_deploy({ action: "generate_token", subdomain: "mi-app", name: "GitHub Actions", framework: "astro" })
 ```

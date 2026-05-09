@@ -1,17 +1,15 @@
 {
   "name": "fyso",
   "version": "2.0.0",
-  "description": "Build complete business apps from conversation. 13 skills, 5 agents, hooks, and auto-synced reference docs for the Fyso platform.",
+  "description": "Universal Fyso plugin for AI coding agents. 16 skills, 5 agents, hooks, team sync, tracking, and auto-synced reference docs. Works with Claude Code and OpenCode.",
   "author": {
     "name": "Fyso",
     "email": "hello@fyso.dev"
   },
   "homepage": "https://fyso.dev",
-  "repository": "https://github.com/fyso-dev/claude-plugin",
+  "repository": "https://github.com/fyso-dev/fyso-plugin",
   "license": "MIT",
   "keywords": ["business-apps", "metadata", "no-code", "crud", "api", "mcp", "erp"],
   "skills": "./skills/",
-  "agents": "./agents/",
-  "hooks": "./hooks/hooks.json",
   "mcpServers": "./.mcp.json"
 }

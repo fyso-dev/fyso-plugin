@@ -5,7 +5,14 @@
       "args": [
         "-y",
         "mcp-remote",
-        "https://app.fyso.dev/mcp"
+        "https://mcp.fyso.dev/mcp"
+      ]
+    },
+    "context7": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@upstash/context7-mcp"
       ]
     }
   }
