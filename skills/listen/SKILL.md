@@ -32,10 +32,9 @@ This skill does NOT directly activate the channel (channels require a subprocess
 
 1. Reads existing configuration (tenant slug from current session, API key from env)
 2. Validates the configuration is complete
-3. Resolves agent identity (from `.fyso-agent` file or `--name` argument)
-4. Writes a `.env` file for the channel server if needed
+3. Resolves agent identity: ensures the Fyso (internal) agent exists, then registers the external agent and persists `.fyso-agent`
+4. Writes `.mcp.json` so the channel server starts with the correct identity on first launch
 5. Outputs the exact `claude --dangerously-load-development-channels` command to run
-6. Optionally writes a helper script `fyso-listen.sh` for convenience
 
 ## Instructions
 
@@ -69,7 +68,56 @@ If `--name` is not given and no `.fyso-agent` file exists, derive a suggested na
 - `FYSO_API_KEY` must not be empty. If neither the env var nor `~/.fyso/config.json` has a usable token, tell the user to either export `FYSO_API_KEY` or run the Fyso plugin login (e.g. `/sync-team`) to create `~/.fyso/config.json`, then stop.
 - If `FYSO_TENANT_SLUG` is missing, tell the user what's needed and stop.
 
-### Step 3: Find the channel server path
+### Step 3: Resolve agent identity
+
+Skip this step entirely when `FYSO_AGENT_NAME` is empty (anonymous mode — messaging stays disabled). When a name is set, perform both halves below so the channel works on first connection without manual setup.
+
+#### 3a. Ensure the Fyso (internal) agent exists
+
+Internal agents live inside the tenant and are how other agents address messages. Pre-create the agent here so first-time `/fyso:listen --name <name>` does not require a follow-up step.
+
+If the `fyso_agents` MCP tool is available in this session:
+
+1. Make sure the messaging tenant is selected: `fyso_auth({ action: "select_tenant", tenantSlug: "<FYSO_TENANT_SLUG>" })` (or use `fyso_agents` once it inherits the session tenant).
+2. Call `fyso_agents({ action: "list" })` and look for an entry whose `name` (or `slug`) matches `FYSO_AGENT_NAME` case-insensitively.
+3. If no match: `fyso_agents({ action: "create", name: "<FYSO_AGENT_NAME>", fallback_mode: "llm" })`. Treat a `409`/duplicate-name error as success — another session created it concurrently.
+4. If `fyso_ai` reports no provider configured and `create` fails for that reason, tell the user to run `fyso_ai({ action: "configure_provider", ... })` first, then re-run `/fyso:listen`. Do NOT block the rest of this step — continue to 3b so messaging still works (the absence of an internal agent only disables auto-run flows).
+
+If the `fyso_agents` MCP tool is NOT available in this session, skip 3a and continue with 3b. Mention in the final summary that the internal agent was not verified so the user can create it later if needed.
+
+#### 3b. Register the external agent (this Claude Code session)
+
+External registration assigns this session a stable `agent_id` like `cero-a3f2c1` so the SSE stream filters `message.received` events correctly.
+
+1. If `.fyso-agent` already exists in the current directory and its `agent_name` matches `FYSO_AGENT_NAME` and its `tenant` matches `FYSO_TENANT_SLUG`, reuse the saved `agent_id` and skip the rest of 3b.
+2. Otherwise, register via REST:
+
+   ```bash
+   curl -sS -X POST "$FYSO_API_URL/api/v1/tenants/$FYSO_TENANT_SLUG/agents/register" \
+     -H "Authorization: Bearer $FYSO_API_KEY" \
+     -H "Content-Type: application/json" \
+     -d "{\"agent_name\": \"$FYSO_AGENT_NAME\"}"
+   ```
+
+   The response shape is `{ "data": { "agent_id": "<name>-<suffix>", ... } }` (some deployments return the fields unwrapped). Read `agent_id` from either location.
+3. Write `.fyso-agent` in the current directory with:
+
+   ```json
+   {
+     "agent_id": "<agent_id>",
+     "agent_name": "<FYSO_AGENT_NAME>",
+     "tenant": "<FYSO_TENANT_SLUG>",
+     "registered_at": "<ISO 8601 timestamp>"
+   }
+   ```
+4. If registration fails:
+   - `401`/`403`: stop and ask the user to refresh the session token (same fix as Step 2).
+   - `409` (name conflict on a different machine): ask the user to pick a different `--name`, do not overwrite `.fyso-agent`.
+   - Network error: warn the user but continue. The channel server will retry the registration on first launch (`channel-server.ts` already has the same fallback), so the worst case is the original behavior.
+
+Carry the resolved `agent_id` (if any) into Step 5 so it can be written into `.mcp.json` as `FYSO_AGENT_ID`.
+
+### Step 4: Find the channel server path
 
 The channel server is `channel-server.ts` inside the Fyso plugin. Locate it with:
 
@@ -84,7 +132,7 @@ CHANNEL_SERVER=$(
 
 If not found, tell the user: "Could not locate channel-server.ts. Run `/plugin update fyso` to get the latest version."
 
-### Step 4: Write `.mcp.json` in current directory
+### Step 5: Write `.mcp.json` in current directory
 
 Create or merge `fyso-channel` into the project's `.mcp.json` (current working directory). If `.mcp.json` already exists, merge the new server entry into `mcpServers` — do NOT overwrite existing servers.
 
@@ -101,18 +149,19 @@ The entry should be:
         "FYSO_TENANT_SLUG": "<tenant_slug>",
         "FYSO_API_KEY": "<api_key>",
         "FYSO_ENTITIES": "<entities or empty>",
-        "FYSO_AGENT_NAME": "<agent_name if provided>"
+        "FYSO_AGENT_NAME": "<agent_name if provided>",
+        "FYSO_AGENT_ID": "<agent_id from Step 3b if available>"
       }
     }
   }
 }
 ```
 
-Only include `FYSO_AGENT_NAME` if a name was provided via `--name` or resolved from `.fyso-agent`.
+Only include `FYSO_AGENT_NAME` if a name was provided via `--name` or resolved from `.fyso-agent`. Only include `FYSO_AGENT_ID` if Step 3b produced one (or it was already present in `.fyso-agent`). Setting `FYSO_AGENT_ID` lets the channel server skip its built-in registration fallback and connect with the correct identity immediately.
 
 This ensures Claude Code finds the MCP server when launched from this directory with `--dangerously-load-development-channels server:fyso-channel`.
 
-### Step 5: Output summary
+### Step 6: Output summary
 
 Show the user:
 
@@ -151,11 +200,12 @@ To delete it: rm -rf ~/.claude/channels/fyso/
 
 ## Agent Identity (v1.38.0+)
 
-Each directory maps to one agent identity. The channel server supports agent registration during the handshake:
+Each directory maps to one agent identity. The skill resolves identity up front in Step 3 — both the internal Fyso agent (so others can address messages to it) and the external registration for this session — so the channel works on first connection without manual setup.
 
-- **Existing identity**: If `.fyso-agent` exists in the current directory, the agent reconnects with its saved identity automatically.
-- **New registration**: Pass `--name <agent_name>` on first connection. Fyso generates an `agent_id` like `cero-a3f2c1` and saves it to `.fyso-agent`.
+- **Existing identity**: If `.fyso-agent` exists in the current directory and matches the active tenant + name, the saved `agent_id` is reused.
+- **New registration**: Pass `--name <agent_name>` on first connection. The skill creates the Fyso (internal) agent if missing, calls `POST /api/v1/tenants/{slug}/agents/register` to mint an `agent_id` like `cero-a3f2c1`, and saves it to `.fyso-agent`.
 - **Auto-suggest**: If no `--name` and no `.fyso-agent`, the skill suggests a name derived from the current directory basename and asks the user to confirm. This ensures messaging is always enabled.
+- **Channel-server fallback**: If pre-flight registration is skipped or fails, `channel-server.ts` still falls back to registering on first launch — Step 3 just makes the fast path the default.
 
 The `.fyso-agent` file contains:
 
