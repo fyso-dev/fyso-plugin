@@ -49,6 +49,17 @@ export function inferModelFamily(model: string): string {
 
 export const PRICING = pricingData.pricing
 
+export interface SessionTokens {
+  input: number
+  output: number
+  cache_creation: number
+  cache_read: number
+}
+
+export function totalSessionTokens(t: SessionTokens): number {
+  return t.input + t.output + t.cache_creation + t.cache_read
+}
+
 export function calculateCost(
   family: string,
   input: number,
@@ -67,7 +78,7 @@ export function calculateCost(
 }
 
 export function createTracker() {
-  let sessionTokens = {
+  let sessionTokens: SessionTokens = {
     input: 0,
     output: 0,
     cache_creation: 0,
@@ -164,11 +175,7 @@ export function createTracker() {
         output_tokens: outputTokens,
         cache_creation_tokens: cacheCreation,
         cache_read_tokens: cacheRead,
-        session_tokens:
-          sessionTokens.input +
-          sessionTokens.output +
-          sessionTokens.cache_creation +
-          sessionTokens.cache_read,
+        session_tokens: totalSessionTokens(sessionTokens),
         session_input_tokens: sessionTokens.input,
         session_output_tokens: sessionTokens.output,
         session_cache_creation_tokens: sessionTokens.cache_creation,
@@ -183,11 +190,7 @@ export function createTracker() {
       const team = await readTeamConfig(ctx.directory || process.cwd())
       const model = lastModel || "claude-opus-4-6"
       const family = inferModelFamily(model)
-      const totalTokens =
-        sessionTokens.input +
-        sessionTokens.output +
-        sessionTokens.cache_creation +
-        sessionTokens.cache_read
+      const totalTokens = totalSessionTokens(sessionTokens)
 
       await send({
         event: "session_update",
@@ -224,11 +227,7 @@ export function createTracker() {
       const team = await readTeamConfig(ctx.directory || process.cwd())
       const model = lastModel || "claude-opus-4-6"
       const family = inferModelFamily(model)
-      const totalTokens =
-        sessionTokens.input +
-        sessionTokens.output +
-        sessionTokens.cache_creation +
-        sessionTokens.cache_read
+      const totalTokens = totalSessionTokens(sessionTokens)
 
       await send({
         event: "heartbeat",
