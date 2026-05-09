@@ -1,16 +1,18 @@
 # Tipos de Campo - Referencia Completa
 
+Tipos aceptados por el MCP de Fyso (`fyso_schema action: "generate"` y `action: "add_field"`).
+
 ## Tipos Básicos
 
-### string
-Texto corto, máximo 255 caracteres.
+### text
+Texto corto (nombres, títulos, códigos, descripciones cortas).
 
 ```json
 {
+  "name": "Nombre",
   "fieldKey": "nombre",
-  "fieldType": "string",
-  "label": "Nombre",
-  "required": true,
+  "fieldType": "text",
+  "isRequired": true,
   "validation": {
     "minLength": 2,
     "maxLength": 100
@@ -18,25 +20,26 @@ Texto corto, máximo 255 caracteres.
 }
 ```
 
-### text
-Texto largo, sin límite práctico.
+### textarea
+Texto largo multilínea (notas, descripciones extensas).
 
 ```json
 {
+  "name": "Descripción",
   "fieldKey": "descripcion",
-  "fieldType": "text",
-  "label": "Descripción"
+  "fieldType": "textarea"
 }
 ```
 
-### integer
-Número entero.
+### number
+Número entero o decimal. Usa `config.decimals` para controlar la precisión (`0` para enteros, `2` para moneda).
 
 ```json
 {
+  "name": "Cantidad",
   "fieldKey": "cantidad",
-  "fieldType": "integer",
-  "label": "Cantidad",
+  "fieldType": "number",
+  "config": { "decimals": 0 },
   "defaultValue": 0,
   "validation": {
     "min": 0,
@@ -45,29 +48,25 @@ Número entero.
 }
 ```
 
-### decimal
-Número con decimales (precisión: 10,2).
-
 ```json
 {
+  "name": "Precio",
   "fieldKey": "precio",
-  "fieldType": "decimal",
-  "label": "Precio",
-  "required": true,
-  "validation": {
-    "min": 0
-  }
+  "fieldType": "number",
+  "isRequired": true,
+  "config": { "decimals": 2 },
+  "validation": { "min": 0 }
 }
 ```
 
 ### boolean
-Verdadero o Falso.
+Verdadero o falso.
 
 ```json
 {
+  "name": "Activo",
   "fieldKey": "activo",
   "fieldType": "boolean",
-  "label": "Activo",
   "defaultValue": true
 }
 ```
@@ -77,61 +76,65 @@ Solo fecha (sin hora).
 
 ```json
 {
+  "name": "Fecha de Nacimiento",
   "fieldKey": "fecha_nacimiento",
-  "fieldType": "date",
-  "label": "Fecha de Nacimiento"
+  "fieldType": "date"
 }
 ```
 
-### datetime
-Fecha con hora.
+### email
+Email con validación automática.
 
 ```json
 {
-  "fieldKey": "ultima_compra",
-  "fieldType": "datetime",
-  "label": "Última Compra"
+  "name": "Email",
+  "fieldKey": "email",
+  "fieldType": "email",
+  "isRequired": true
+}
+```
+
+### phone
+Número de teléfono.
+
+```json
+{
+  "name": "Teléfono",
+  "fieldKey": "telefono",
+  "fieldType": "phone"
 }
 ```
 
 ## Tipos Especiales
 
-### enum
-Lista de opciones predefinidas.
+### select
+Lista de opciones predefinidas. Las opciones van en `config.options`.
 
 ```json
 {
+  "name": "Estado",
   "fieldKey": "estado",
-  "fieldType": "enum",
-  "label": "Estado",
-  "options": ["pendiente", "en_proceso", "completado", "cancelado"],
+  "fieldType": "select",
+  "config": {
+    "options": ["pendiente", "en_proceso", "completado", "cancelado"]
+  },
   "defaultValue": "pendiente"
 }
 ```
 
 ### relation
-Referencia a otra entidad (foreign key).
+Referencia a otra entidad (foreign key). Indica `entity` y `displayField` en `config`.
 
 ```json
 {
-  "fieldKey": "cliente_id",
+  "name": "Cliente",
+  "fieldKey": "cliente",
   "fieldType": "relation",
-  "label": "Cliente",
-  "relation": {
+  "isRequired": true,
+  "config": {
     "entity": "clientes",
     "displayField": "nombre"
   }
-}
-```
-
-### json
-Objeto JSON flexible.
-
-```json
-{
-  "fieldKey": "metadata",
-  "fieldType": "json",
-  "label": "Metadatos"
 }
 ```
 
@@ -139,7 +142,12 @@ Objeto JSON flexible.
 
 ### Requerido
 ```json
-{ "required": true }
+{ "isRequired": true }
+```
+
+### Único
+```json
+{ "isUnique": true }
 ```
 
 ### Rango numérico
@@ -157,43 +165,15 @@ Objeto JSON flexible.
 { "validation": { "pattern": "^[A-Z]{3}[0-9]{4}$" } }
 ```
 
-### Único
-```json
-{ "unique": true }
-```
-
-## Campos con Comportamiento Especial
-
-### Email
-```json
-{
-  "fieldKey": "email",
-  "fieldType": "string",
-  "label": "Email",
-  "validation": {
-    "pattern": "^[^@]+@[^@]+\\.[^@]+$"
-  }
-}
-```
-
-### Teléfono
-```json
-{
-  "fieldKey": "telefono",
-  "fieldType": "string",
-  "label": "Teléfono",
-  "validation": {
-    "pattern": "^[+]?[0-9]{8,15}$"
-  }
-}
-```
+## Patrones de Uso Frecuente
 
 ### Precio (moneda)
 ```json
 {
+  "name": "Precio",
   "fieldKey": "precio",
-  "fieldType": "decimal",
-  "label": "Precio",
+  "fieldType": "number",
+  "config": { "decimals": 2 },
   "display": {
     "format": "currency",
     "currency": "USD"
@@ -204,15 +184,11 @@ Objeto JSON flexible.
 ### Porcentaje
 ```json
 {
+  "name": "Descuento",
   "fieldKey": "descuento",
-  "fieldType": "decimal",
-  "label": "Descuento",
-  "display": {
-    "format": "percentage"
-  },
-  "validation": {
-    "min": 0,
-    "max": 100
-  }
+  "fieldType": "number",
+  "config": { "decimals": 2 },
+  "display": { "format": "percentage" },
+  "validation": { "min": 0, "max": 100 }
 }
 ```
