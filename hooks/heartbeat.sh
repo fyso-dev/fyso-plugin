@@ -140,6 +140,11 @@ try:
     DEFAULT_FAMILY = _pdata.get("default_family", "opus")
 except:
     pass
+
+# Fallback: default to opus when transcript yields no model (parity with tracking.sh / tracking.ts)
+if not model:
+    model = "claude-opus-4-6"
+
 model_family = "opus" if "opus" in model else "sonnet" if "sonnet" in model else "haiku" if "haiku" in model else DEFAULT_FAMILY
 p = PRICING.get(model_family, {})
 cost_usd = (total_input / 1e6) * p.get("input", 0) + (total_output / 1e6) * p.get("output", 0) + (total_cache_creation / 1e6) * p.get("cache_write", 0) + (total_cache_read / 1e6) * p.get("cache_read", 0) if p else 0
@@ -163,11 +168,22 @@ data = {
     "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
 }
 data = {k: v for k, v in data.items() if v is not None}
+payload = json.dumps(data).encode()
+
+debug_path = os.path.expanduser("~/.fyso/debug")
+log_path = os.path.expanduser("~/.fyso/hook-debug.log")
+is_debug = os.path.exists(debug_path)
+
+if is_debug:
+    with open(log_path, "a") as dl:
+        dl.write(f"=== {datetime.datetime.utcnow().isoformat()}Z === EVENT=heartbeat ===\n")
+        dl.write(f"TRANSCRIPT: path={transcript} lines={len(lines)} model={model} session_tokens={total_tokens}\n")
+        dl.write(f"PAYLOAD: {payload.decode()}\n")
 
 try:
     req = urllib.request.Request(
         f"{api_url}/api/entities/tracking/records",
-        data=json.dumps(data).encode(),
+        data=payload,
         headers={
             "Authorization": f"Bearer {token}",
             "X-Tenant-ID": tenant,
@@ -175,9 +191,15 @@ try:
         },
         method="POST",
     )
-    urllib.request.urlopen(req, timeout=5)
-except:
-    pass
+    resp = urllib.request.urlopen(req, timeout=5)
+    if is_debug:
+        resp_body = resp.read().decode()
+        with open(log_path, "a") as dl:
+            dl.write(f"RESPONSE: {resp.status} {resp_body[:200]}\n\n")
+except Exception as e:
+    if is_debug:
+        with open(log_path, "a") as dl:
+            dl.write(f"ERROR: {e}\n\n")
 PYEOF
 
 done
