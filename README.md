@@ -8,7 +8,7 @@ Universal Fyso plugin for AI coding agents. Build complete business apps from co
 
 | Component | Count | Description |
 |-----------|-------|-------------|
-| **Skills** | 23 | Slash commands (`/fyso:plan`, `/fyso:build`, etc.) — shared across both platforms |
+| **Skills** | 16 | Slash commands (`/fyso:plan`, `/fyso:build`, etc.) — shared across both platforms |
 | **Agents** | 5 | Specialized subagents (architect, designer, builder, verifier, ui-architect) |
 | **Team Sync** | 1 | Sync Fyso agent teams to local directories |
 | **Tracking** | hooks | Session tracking, agent dispatch, heartbeat |
@@ -62,7 +62,7 @@ irm https://raw.githubusercontent.com/fyso-dev/fyso-plugin/main/setup-opencode.p
 
 This automatically:
 - Copies agents to `.opencode/agents/` (5 subagents)
-- Copies skills to `.opencode/skills/` (23 skills)
+- Copies skills to `.opencode/skills/` (16 skills)
 - Copies `FYSO-REFERENCE.md` to your project
 - Updates `opencode.json` with the plugin and Fyso MCP server
 
@@ -104,31 +104,26 @@ On first use, the MCP server opens an OAuth flow to connect your Fyso account.
 
 ### Full Skill List
 
-| Skill | Description |
-|-------|-------------|
-| `fyso` | Main orchestrator -- routes your request |
-| `plan` | Design complete apps: requirements, roadmap, phases |
-| `build` | Execute plans: create entities, rules, data via MCP |
-| `verify` | Verify tenant matches plan requirements |
-| `scan` | Scan tenant and generate status report |
-| `status` | View project status |
-| `ui` | UI generation: discovery, mockups, contracts, code |
-| `new-app` | Wizard for new apps with pre-built templates |
-| `add-entity` | Guided entity creation |
-| `entity` | Advanced entity management |
-| `rules` | Create business rules |
-| `fields` | Field management |
-| `api` | REST API docs and clients |
-| `expose` | Create channels and API tools |
-| `deploy` | Deploy to sites.fyso.dev |
-| `publish` | Publish apps/entities |
-| `init` | Initialize new project |
-| `listen` | Real-time data monitoring |
-| `mcp` | MCP configuration |
-| `test` | Test runner for rules |
-| `audit` | Security/UX auditing |
-| `welcome` | Guided onboarding |
-| `sync-team` | Sync Fyso agent teams to local directories |
+All 16 skills are top-level slash commands. Several skills accept subcommands (shown in the second column).
+
+| Skill | Subcommands | Description |
+|-------|-------------|-------------|
+| `fyso` | — | Main orchestrator -- routes your request |
+| `plan` | `new`, `phase` | Design complete apps: requirements, roadmap, phases |
+| `build` | `phase` | Execute plans: create entities, rules, data via MCP |
+| `verify` | `phase` | Verify tenant matches plan requirements |
+| `inspect` | `status`, `scan`, `audit` | Tenant observability: status dashboard, full scan, deep audit |
+| `entity` | `create`, `add`, `list`, `modify`, `fields` | Manage entities and their fields (incl. custom fields) |
+| `rules` | — | Create business rules |
+| `ui` | `plan`, `infer`, `mockup`, `contracts`, `build`, `audit` | UI generation pipeline: discovery, mockups, contracts, code |
+| `api` | `expose`, `spec`, `examples`, `client` | Channels for agents + REST API docs and clients |
+| `setup` | `init`, `mcp` | Initialize a new project and configure MCP |
+| `release` | `deploy`, `publish` | Deploy frontend to sites.fyso.dev or publish to catalog |
+| `new-app` | — | Wizard for new apps with pre-built templates |
+| `listen` | — | Real-time data monitoring |
+| `test` | — | Test runner for rules |
+| `welcome` | — | Guided onboarding |
+| `sync-team` | — | Sync Fyso agent teams to local directories |
 
 ## Agents
 
