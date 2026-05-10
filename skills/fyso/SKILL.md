@@ -94,7 +94,7 @@ Siempre:
 3. Documenta - explica que se creo y por que
 4. Prueba - ejecuta tests despues de cada cambio
 
-## Comandos Disponibles (13 skills)
+## Comandos Disponibles (16 skills)
 
 ### Core Pipeline (GSD)
 - `/fyso:plan` - Planificar app nueva o siguiente fase

@@ -146,16 +146,18 @@ export function createTracker() {
       if (!config) return
       const team = await readTeamConfig(ctx.directory || process.cwd())
 
-      const inputTokens = ctx.input_tokens || 0
-      const outputTokens = ctx.output_tokens || 0
-      const cacheCreation = ctx.cache_creation_tokens || 0
-      const cacheRead = ctx.cache_read_tokens || 0
-      const tokens = inputTokens + outputTokens + cacheCreation + cacheRead
+      const callTokens: SessionTokens = {
+        input: ctx.input_tokens || 0,
+        output: ctx.output_tokens || 0,
+        cache_creation: ctx.cache_creation_tokens || 0,
+        cache_read: ctx.cache_read_tokens || 0,
+      }
+      const tokens = totalSessionTokens(callTokens)
 
-      sessionTokens.input += inputTokens
-      sessionTokens.output += outputTokens
-      sessionTokens.cache_creation += cacheCreation
-      sessionTokens.cache_read += cacheRead
+      sessionTokens.input += callTokens.input
+      sessionTokens.output += callTokens.output
+      sessionTokens.cache_creation += callTokens.cache_creation
+      sessionTokens.cache_read += callTokens.cache_read
 
       if (ctx.model) lastModel = ctx.model
       const model = lastModel || "claude-opus-4-6"
@@ -171,10 +173,10 @@ export function createTracker() {
         model,
         model_family: family,
         tokens,
-        input_tokens: inputTokens,
-        output_tokens: outputTokens,
-        cache_creation_tokens: cacheCreation,
-        cache_read_tokens: cacheRead,
+        input_tokens: callTokens.input,
+        output_tokens: callTokens.output,
+        cache_creation_tokens: callTokens.cache_creation,
+        cache_read_tokens: callTokens.cache_read,
         session_tokens: totalSessionTokens(sessionTokens),
         session_input_tokens: sessionTokens.input,
         session_output_tokens: sessionTokens.output,
