@@ -17,53 +17,54 @@ import {
   syncAgentsToDirectory,
 } from "./sync-team"
 
+const UNSAFE_NAMES = [
+  // empty, dot, path traversal
+  "",
+  ".",
+  "..",
+  "../foo",
+  "../../etc/test",
+  // path separators or null byte
+  "foo/bar",
+  "foo\\bar",
+  "foo\u0000bar",
+  "foo bar",
+  // leading dot or non-alnum first char
+  ".hidden",
+  "-leading",
+  "_leading",
+  // longer than 64 chars
+  "a".repeat(65),
+]
+
 describe("isSafeAgentName", () => {
-  it("accepts plain alphanumeric names", () => {
-    expect(isSafeAgentName("dev")).toBe(true)
-    expect(isSafeAgentName("Agent1")).toBe(true)
-    expect(isSafeAgentName("dev-1")).toBe(true)
-    expect(isSafeAgentName("dev_1")).toBe(true)
-  })
+  it.each(["dev", "Agent1", "dev-1", "dev_1", "a".repeat(64)])(
+    "accepts safe name %j",
+    (name) => {
+      expect(isSafeAgentName(name)).toBe(true)
+    },
+  )
 
-  it("rejects empty, dot, or path traversal names", () => {
-    expect(isSafeAgentName("")).toBe(false)
-    expect(isSafeAgentName(".")).toBe(false)
-    expect(isSafeAgentName("..")).toBe(false)
-    expect(isSafeAgentName("../foo")).toBe(false)
-    expect(isSafeAgentName("../../etc/test")).toBe(false)
-  })
-
-  it("rejects names with path separators or null bytes", () => {
-    expect(isSafeAgentName("foo/bar")).toBe(false)
-    expect(isSafeAgentName("foo\\bar")).toBe(false)
-    expect(isSafeAgentName("foo\u0000bar")).toBe(false)
-    expect(isSafeAgentName("foo bar")).toBe(false)
-  })
-
-  it("rejects leading dot or non-alnum first char", () => {
-    expect(isSafeAgentName(".hidden")).toBe(false)
-    expect(isSafeAgentName("-leading")).toBe(false)
-    expect(isSafeAgentName("_leading")).toBe(false)
-  })
-
-  it("rejects names longer than 64 chars", () => {
-    expect(isSafeAgentName("a".repeat(64))).toBe(true)
-    expect(isSafeAgentName("a".repeat(65))).toBe(false)
+  it.each(UNSAFE_NAMES)("rejects unsafe name %j", (name) => {
+    expect(isSafeAgentName(name)).toBe(false)
   })
 })
 
 describe("resolveAgentFilePath", () => {
+  // These two cases are pure path-string tests (no filesystem write), but we
+  // still derive the base from tmpdir() so static analyzers don't flag a
+  // hardcoded `/tmp/...` literal as an unsafe public-tmp path.
+  const baseDir = join(tmpdir(), "fyso-resolve-agents")
+
   it("returns a path inside the target directory for safe names", () => {
-    const dir = "/tmp/agents"
-    const result = resolveAgentFilePath(dir, "dev")
-    expect(result).toBe(join(dir, "dev.md"))
+    const result = resolveAgentFilePath(baseDir, "dev")
+    expect(result).toBe(join(baseDir, "dev.md"))
   })
 
   it("returns null for unsafe names", () => {
-    const dir = "/tmp/agents"
-    expect(resolveAgentFilePath(dir, "../evil")).toBeNull()
-    expect(resolveAgentFilePath(dir, "foo/bar")).toBeNull()
-    expect(resolveAgentFilePath(dir, "")).toBeNull()
+    expect(resolveAgentFilePath(baseDir, "../evil")).toBeNull()
+    expect(resolveAgentFilePath(baseDir, "foo/bar")).toBeNull()
+    expect(resolveAgentFilePath(baseDir, "")).toBeNull()
   })
 
   it("guarantees resolved path stays under target dir", () => {
