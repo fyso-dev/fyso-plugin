@@ -68,17 +68,20 @@ def calculate_cost(family, input_tokens, output_tokens, cache_write, cache_read,
     )
 
 
-def parse_transcript_usage(transcript_path):
+def parse_transcript_usage(transcript_path, retain_lines=False):
     """Walk a Claude transcript JSONL once and accumulate session usage.
 
     Returns a dict with keys:
         model, input, output, cache_creation, cache_read,
-        lines (list[str] — raw stripped JSONL lines, in order),
+        lines (list[str] — raw stripped JSONL lines, in order; only populated
+            when ``retain_lines=True`` to avoid memory pressure on the
+            high-frequency tracking path),
         line_count, usage_count, model_count
 
-    The raw ``lines`` list lets callers run their own per-script summary
-    pass (e.g. last assistant text, recent tool names) without re-reading
-    the file from disk.
+    Set ``retain_lines=True`` when the caller needs to run a second pass over
+    the transcript (e.g. the heartbeat summary, or session_end detail). When
+    False (the default) ``lines`` is left empty and the parser stays
+    streaming.
 
     Returns the empty/zero shape on missing path or read errors so callers
     don't need to guard.
@@ -102,7 +105,8 @@ def parse_transcript_usage(transcript_path):
                 stripped = raw_line.strip()
                 if not stripped:
                     continue
-                result["lines"].append(stripped)
+                if retain_lines:
+                    result["lines"].append(stripped)
                 result["line_count"] += 1
                 try:
                     entry = json.loads(stripped)

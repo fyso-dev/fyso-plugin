@@ -143,8 +143,10 @@ if not message_id and isinstance(hook, dict):
     message_id = hook.get("requestId", "") or ""
 
 # Single-pass transcript read: shared lib accumulates session usage and last-seen model.
+# Only retain raw lines when the caller will run a second pass (session_end summary).
 transcript_path = hook.get("transcript_path", "")
-_t = parse_transcript_usage(transcript_path)
+_needs_summary = event_type in ("session_end", "session_update")
+_t = parse_transcript_usage(transcript_path, retain_lines=_needs_summary)
 session_input = _t["input"]
 session_output = _t["output"]
 session_cache_creation = _t["cache_creation"]
@@ -158,7 +160,7 @@ _tools_used = []
 
 # Per-script summary pass (only for session_end/session_update) — distinct dedup
 # window and length thresholds vs heartbeat.sh, kept inline by design.
-if event_type in ("session_end", "session_update"):
+if _needs_summary:
     for raw_line in _t["lines"]:
         try:
             entry = json.loads(raw_line)

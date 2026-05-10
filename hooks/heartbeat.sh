@@ -67,13 +67,15 @@ if not token or not tenant or not transcript:
     sys.exit(0)
 
 # Single-pass transcript read: shared lib accumulates session usage and last-seen model.
-_t = parse_transcript_usage(transcript)
+# Heartbeat always needs the raw lines for its summary pass.
+_t = parse_transcript_usage(transcript, retain_lines=True)
 lines = _t["lines"]
-if not lines:
-    sys.exit(0)
 
 # Recent activity summary uses just the last 50 lines (smaller dedup window
 # than tracking.sh's session_end summary — kept inline by design).
+# When `lines` is empty (fresh session before first assistant message) the
+# loop is a no-op and the script falls through to emit an "idle" heartbeat,
+# preserving liveness tracking.
 recent = lines[-50:] if len(lines) > 50 else lines
 tools_used = []
 last_text = ""
