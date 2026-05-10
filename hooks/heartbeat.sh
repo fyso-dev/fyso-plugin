@@ -9,6 +9,7 @@ CONFIG="$HOME/.fyso/config.json"
 # Resolve shared pricing source of truth (sibling opencode-plugin/src/pricing.json)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export PRICING_FILE="$SCRIPT_DIR/../opencode-plugin/src/pricing.json"
+export FYSO_HOOKS_DIR="$SCRIPT_DIR"
 
 # Read session info from stdin (SessionStart JSON)
 STDIN_DATA=$(cat 2>/dev/null || true)
@@ -34,6 +35,13 @@ while true; do
   python3 << 'PYEOF'
 import json, os, sys, datetime
 
+# Import shared tracking library (PRICING + infer_model_family + cost + transcript parser)
+sys.path.insert(0, os.environ.get("FYSO_HOOKS_DIR", os.path.dirname(os.path.abspath(__file__))))
+try:
+    from _tracking_lib import load_pricing, infer_model_family, calculate_cost, parse_transcript_usage
+except Exception:
+    sys.exit(0)
+
 config_path = os.path.expanduser("~/.fyso/config.json")
 try:
     cfg = json.load(open(config_path))
@@ -58,17 +66,15 @@ cwd = os.environ.get("CWD", "")
 if not token or not tenant or not transcript:
     sys.exit(0)
 
-# Read last 50 lines of transcript to understand recent activity
-try:
-    lines = []
-    with open(transcript) as f:
-        for line in f:
-            lines.append(line.strip())
-    recent = lines[-50:] if len(lines) > 50 else lines
-except:
+# Single-pass transcript read: shared lib accumulates session usage and last-seen model.
+_t = parse_transcript_usage(transcript)
+lines = _t["lines"]
+if not lines:
     sys.exit(0)
 
-# Extract recent tool calls and assistant messages
+# Recent activity summary uses just the last 50 lines (smaller dedup window
+# than tracking.sh's session_end summary — kept inline by design).
+recent = lines[-50:] if len(lines) > 50 else lines
 tools_used = []
 last_text = ""
 for line in recent:
@@ -105,49 +111,23 @@ detail = " | ".join(parts) if parts else "idle"
 if len(detail) > 200:
     detail = detail[:200]
 
-# Count tokens since session start (with breakdown)
-total_tokens = 0
-total_input = 0
-total_output = 0
-total_cache_creation = 0
-total_cache_read = 0
-model = ""
-for line in lines:
-    try:
-        entry = json.loads(line)
-        msg = entry.get("message", {})
-        if isinstance(msg, dict):
-            m = msg.get("model", "")
-            if m:
-                model = m
-            u = msg.get("usage", {})
-            if isinstance(u, dict):
-                total_input += (u.get("input_tokens", 0) or 0)
-                total_output += (u.get("output_tokens", 0) or 0)
-                total_cache_creation += (u.get("cache_creation_input_tokens", 0) or 0)
-                total_cache_read += (u.get("cache_read_input_tokens", 0) or 0)
-    except:
-        continue
+# Token totals from shared accumulator
+total_input = _t["input"]
+total_output = _t["output"]
+total_cache_creation = _t["cache_creation"]
+total_cache_read = _t["cache_read"]
 total_tokens = total_input + total_output + total_cache_creation + total_cache_read
+model = _t["model"]
 
-# Cost calculation (per 1M tokens) — loaded from shared source of truth
-PRICING = {}
-DEFAULT_FAMILY = "opus"
-try:
-    with open(os.environ.get("PRICING_FILE", "")) as pf:
-        _pdata = json.load(pf)
-    PRICING = _pdata.get("pricing", {})
-    DEFAULT_FAMILY = _pdata.get("default_family", "opus")
-except:
-    pass
+# Cost calculation — loaded from shared source of truth
+PRICING, DEFAULT_FAMILY = load_pricing()
 
 # Fallback: default to opus when transcript yields no model (parity with tracking.sh / tracking.ts)
 if not model:
     model = "claude-opus-4-6"
 
-model_family = "opus" if "opus" in model else "sonnet" if "sonnet" in model else "haiku" if "haiku" in model else DEFAULT_FAMILY
-p = PRICING.get(model_family, {})
-cost_usd = (total_input / 1e6) * p.get("input", 0) + (total_output / 1e6) * p.get("output", 0) + (total_cache_creation / 1e6) * p.get("cache_write", 0) + (total_cache_read / 1e6) * p.get("cache_read", 0) if p else 0
+model_family = infer_model_family(model, DEFAULT_FAMILY)
+cost_usd = calculate_cost(model_family, total_input, total_output, total_cache_creation, total_cache_read, PRICING)
 
 import urllib.request
 data = {
