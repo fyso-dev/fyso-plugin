@@ -120,7 +120,7 @@ describe('fetchThread', () => {
     expect(new Set(ids).size).toBe(ids.length);
     // And we should have walked exactly the two unique nodes
     expect(thread).toHaveLength(2);
-    expect(thread.map((m) => m.from).sort()).toEqual(['alice', 'bob']);
+    expect(thread.map((m) => m.from).sort((a, b) => a.localeCompare(b))).toEqual(['alice', 'bob']);
     // Cycle detection should stop the loop early — well below the depth cap
     expect((fetchImpl as any).mock.calls.length).toBe(2);
   });
