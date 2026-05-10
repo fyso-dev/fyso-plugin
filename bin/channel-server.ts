@@ -20,6 +20,7 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
+import { parseSseBlock, fetchThread, type ThreadMessage } from './channel-server-utils';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -247,62 +248,6 @@ mcp.setRequestHandler(CallToolRequestSchema, async (request) => {
 // ---------------------------------------------------------------------------
 
 /**
- * Parse a single SSE event block into { event, data, id }.
- * Returns null if the block contains no data line.
- */
-function parseSseBlock(block: string): { event: string; data: string; id?: string } | null {
-  let event = 'message';
-  let data = '';
-  let id: string | undefined;
-
-  for (const line of block.split('\n')) {
-    if (line.startsWith('event:')) {
-      event = line.slice(6).trim();
-    } else if (line.startsWith('data:')) {
-      data += (data ? '\n' : '') + line.slice(5).trim();
-    } else if (line.startsWith('id:')) {
-      id = line.slice(3).trim();
-    }
-  }
-
-  if (!data) return null;
-  return { event, data, id };
-}
-
-/**
- * Fetch a message by ID and follow in_reply_to chain to build thread context.
- * Returns array from oldest to newest. Max 10 messages to avoid runaway chains.
- */
-async function fetchThread(messageId: string): Promise<Array<{ from: string; subject?: string; payload: any; created_at: string }>> {
-  const thread: Array<{ from: string; subject?: string; payload: any; created_at: string }> = [];
-  let currentId: string | null = messageId;
-  let depth = 0;
-
-  while (currentId && depth < 10) {
-    try {
-      const res = await fetch(`${API_URL}/api/tenants/${TENANT_SLUG}/agent-messages/${currentId}/read`, {
-        headers: { Authorization: `Bearer ${API_KEY}` },
-      });
-      if (!res.ok) break;
-      const data = await res.json() as any;
-      const msg = data.data ?? data.message ?? data;
-      thread.unshift({
-        from: msg.from_agent,
-        subject: msg.subject,
-        payload: msg.payload,
-        created_at: msg.created_at,
-      });
-      currentId = msg.in_reply_to ?? null;
-    } catch {
-      break;
-    }
-    depth++;
-  }
-
-  return thread;
-}
-
-/**
  * Build the SSE URL for the given tenant + optional entity filter.
  */
 function buildSseUrl(): string {
@@ -440,9 +385,13 @@ async function startSseBridge(): Promise<() => void> {
             // Format message.received events for readability
             if (parsed.event === 'message.received' && payload.message_id) {
               // Fetch thread context
-              let thread: Array<{ from: string; subject?: string; payload: any; created_at: string }> = [];
+              let thread: ThreadMessage[] = [];
               try {
-                thread = await fetchThread(payload.message_id);
+                thread = await fetchThread(payload.message_id, {
+                  apiUrl: API_URL,
+                  tenantSlug: TENANT_SLUG,
+                  apiKey: API_KEY,
+                });
                 if (thread.length > 0) {
                   payload.thread = thread;
                   payload.thread_length = thread.length;

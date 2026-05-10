@@ -1,7 +1,13 @@
 {
   "name": "@fyso/channel-server",
   "private": true,
+  "scripts": {
+    "test": "vitest run"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.0"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.8"
   }
 }
