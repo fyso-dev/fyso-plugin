@@ -1,7 +1,7 @@
 import { readConfig, readTeamConfig, apiRequest } from "../config"
 import { readFile, writeFile, mkdir, rm } from "fs/promises"
 import { existsSync } from "fs"
-import { join, resolve, sep } from "path"
+import { basename, join, resolve, sep } from "path"
 
 interface Agent {
   name: string
@@ -30,7 +30,11 @@ export function isSafeAgentName(name: string): boolean {
 
 export function resolveAgentFilePath(dir: string, name: string): string | null {
   if (!isSafeAgentName(name)) return null
-  const filePath = join(dir, `${name}.md`)
+  // Defense-in-depth: strip any directory component the regex might have missed
+  // and require the basename to round-trip identically.
+  const safe = basename(name)
+  if (safe !== name) return null
+  const filePath = join(dir, `${safe}.md`)
   const dirResolved = resolve(dir) + sep
   const fileResolved = resolve(filePath)
   if (!fileResolved.startsWith(dirResolved)) return null
@@ -122,6 +126,87 @@ export async function fetchTeamAgents(
     }))
 }
 
+interface SafeAgentFields {
+  name: string
+  display: string
+  role: string
+  soul: string
+  systemPrompt: string
+  color: string
+}
+
+function sanitizeAgent(agent: Agent): SafeAgentFields {
+  return {
+    name: agent.name,
+    display: sanitizeMarkdownBody(agent.display_name),
+    role: sanitizeMarkdownBody(agent.role),
+    soul: sanitizeMarkdownBody(agent.soul),
+    systemPrompt: sanitizeMarkdownBody(agent.system_prompt),
+    color: getColor(agent.role),
+  }
+}
+
+function renderClaudeAgent(agent: Agent, safe: SafeAgentFields): string {
+  const firstLine = firstLineOf(agent.soul, agent.display_name)
+  const description = `${agent.role} -- ${agent.display_name}. ${firstLine}`
+  return `---
+name: ${yamlString(agent.name)}
+description: ${yamlString(description)}
+tools: Read, Write, Edit, Bash, Grep, Glob
+color: ${yamlString(safe.color)}
+---
+
+# ${safe.display}
+
+**Role:** ${safe.role}
+
+## Soul
+${safe.soul}
+
+## System Prompt
+${safe.systemPrompt}
+`
+}
+
+function renderOpencodeAgent(agent: Agent, safe: SafeAgentFields): string {
+  const description = `${agent.role} -- ${agent.display_name}`
+  return `---
+description: ${yamlString(description)}
+mode: subagent
+color: ${yamlString(safe.color)}
+---
+
+# ${safe.display}
+
+You are **${safe.display}**, a specialized agent with the role of **${safe.role}**.
+
+## Soul
+${safe.soul}
+
+## System Prompt
+${safe.systemPrompt}
+`
+}
+
+async function writeAgentsTo(
+  agents: Agent[],
+  dir: string,
+  render: (agent: Agent, safe: SafeAgentFields) => string,
+  created: string[],
+): Promise<void> {
+  await mkdir(dir, { recursive: true })
+  for (const agent of agents) {
+    const filePath = resolveAgentFilePath(dir, agent.name)
+    if (!filePath) {
+      console.warn(`[fyso] skipping agent with unsafe name: ${JSON.stringify(agent.name)}`)
+      continue
+    }
+    if (existsSync(filePath)) await rm(filePath)
+    await writeFile(filePath, render(agent, sanitizeAgent(agent)))
+    created.push(filePath)
+  }
+}
+
 export async function syncAgentsToDirectory(
   agents: Agent[],
   cwd: string,
@@ -129,83 +214,9 @@ export async function syncAgentsToDirectory(
 ): Promise<string[]> {
   const created: string[] = []
 
-  // Claude Code agents (.claude/agents/)
-  const claudeDir = join(cwd, ".claude", "agents")
-  await mkdir(claudeDir, { recursive: true })
+  await writeAgentsTo(agents, join(cwd, ".claude", "agents"), renderClaudeAgent, created)
+  await writeAgentsTo(agents, join(cwd, ".opencode", "agents"), renderOpencodeAgent, created)
 
-  for (const agent of agents) {
-    const filePath = resolveAgentFilePath(claudeDir, agent.name)
-    if (!filePath) {
-      console.warn(`[fyso] skipping agent with unsafe name: ${JSON.stringify(agent.name)}`)
-      continue
-    }
-    if (existsSync(filePath)) await rm(filePath)
-    const color = getColor(agent.role)
-    const firstLine = firstLineOf(agent.soul, agent.display_name)
-    const description = `${agent.role} -- ${agent.display_name}. ${firstLine}`
-    const safeSoul = sanitizeMarkdownBody(agent.soul)
-    const safeSystemPrompt = sanitizeMarkdownBody(agent.system_prompt)
-    const safeDisplay = sanitizeMarkdownBody(agent.display_name)
-    const safeRole = sanitizeMarkdownBody(agent.role)
-    const content = `---
-name: ${yamlString(agent.name)}
-description: ${yamlString(description)}
-tools: Read, Write, Edit, Bash, Grep, Glob
-color: ${yamlString(color)}
----
-
-# ${safeDisplay}
-
-**Role:** ${safeRole}
-
-## Soul
-${safeSoul}
-
-## System Prompt
-${safeSystemPrompt}
-`
-    await writeFile(filePath, content)
-    created.push(filePath)
-  }
-
-  // OpenCode agents (.opencode/agents/)
-  const opencodeDir = join(cwd, ".opencode", "agents")
-  await mkdir(opencodeDir, { recursive: true })
-
-  for (const agent of agents) {
-    const filePath = resolveAgentFilePath(opencodeDir, agent.name)
-    if (!filePath) {
-      console.warn(`[fyso] skipping agent with unsafe name: ${JSON.stringify(agent.name)}`)
-      continue
-    }
-    if (existsSync(filePath)) await rm(filePath)
-    const color = getColor(agent.role)
-    const description = `${agent.role} -- ${agent.display_name}`
-    const safeSoul = sanitizeMarkdownBody(agent.soul)
-    const safeSystemPrompt = sanitizeMarkdownBody(agent.system_prompt)
-    const safeDisplay = sanitizeMarkdownBody(agent.display_name)
-    const safeRole = sanitizeMarkdownBody(agent.role)
-    const content = `---
-description: ${yamlString(description)}
-mode: subagent
-color: ${yamlString(color)}
----
-
-# ${safeDisplay}
-
-You are **${safeDisplay}**, a specialized agent with the role of **${safeRole}**.
-
-## Soul
-${safeSoul}
-
-## System Prompt
-${safeSystemPrompt}
-`
-    await writeFile(filePath, content)
-    created.push(filePath)
-  }
-
-  // Team prompt
   if (teamPrompt) {
     const claudeMd = join(cwd, ".claude", "CLAUDE.md")
     await mkdir(join(cwd, ".claude"), { recursive: true })
