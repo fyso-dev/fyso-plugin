@@ -1,7 +1,7 @@
 import { readConfig, readTeamConfig, apiRequest } from "../config"
 import { readFile, writeFile, mkdir, rm } from "fs/promises"
 import { existsSync } from "fs"
-import { join } from "path"
+import { join, resolve, sep } from "path"
 
 interface Agent {
   name: string
@@ -20,6 +20,39 @@ const ROLE_COLORS: Record<string, string> = {
   writer: "cyan",
   security: "red",
   triage: "orange",
+}
+
+const SAFE_AGENT_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/
+
+export function isSafeAgentName(name: string): boolean {
+  return typeof name === "string" && SAFE_AGENT_NAME_RE.test(name)
+}
+
+export function resolveAgentFilePath(dir: string, name: string): string | null {
+  if (!isSafeAgentName(name)) return null
+  const filePath = join(dir, `${name}.md`)
+  const dirResolved = resolve(dir) + sep
+  const fileResolved = resolve(filePath)
+  if (!fileResolved.startsWith(dirResolved)) return null
+  return filePath
+}
+
+// YAML double-quoted scalar with escaping. Safe against newline / quote / colon
+// injection, so untrusted strings cannot inject extra frontmatter fields.
+export function yamlString(value: string): string {
+  const escaped = String(value)
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\r/g, "\\r")
+    .replace(/\n/g, "\\n")
+    .replace(/\t/g, "\\t")
+  return `"${escaped}"`
+}
+
+// Defensive: prevent untrusted body content from containing a line that is
+// exactly `---`, which a lenient parser could mistake for a frontmatter fence.
+export function sanitizeMarkdownBody(value: string): string {
+  return String(value).replace(/^---\s*$/gm, "\u200B---")
 }
 
 function getColor(role: string): string {
@@ -101,26 +134,35 @@ export async function syncAgentsToDirectory(
   await mkdir(claudeDir, { recursive: true })
 
   for (const agent of agents) {
-    const filePath = join(claudeDir, `${agent.name}.md`)
+    const filePath = resolveAgentFilePath(claudeDir, agent.name)
+    if (!filePath) {
+      console.warn(`[fyso] skipping agent with unsafe name: ${JSON.stringify(agent.name)}`)
+      continue
+    }
     if (existsSync(filePath)) await rm(filePath)
     const color = getColor(agent.role)
     const firstLine = firstLineOf(agent.soul, agent.display_name)
+    const description = `${agent.role} -- ${agent.display_name}. ${firstLine}`
+    const safeSoul = sanitizeMarkdownBody(agent.soul)
+    const safeSystemPrompt = sanitizeMarkdownBody(agent.system_prompt)
+    const safeDisplay = sanitizeMarkdownBody(agent.display_name)
+    const safeRole = sanitizeMarkdownBody(agent.role)
     const content = `---
-name: ${agent.name}
-description: ${agent.role} -- ${agent.display_name}. ${firstLine}
+name: ${yamlString(agent.name)}
+description: ${yamlString(description)}
 tools: Read, Write, Edit, Bash, Grep, Glob
-color: ${color}
+color: ${yamlString(color)}
 ---
 
-# ${agent.display_name}
+# ${safeDisplay}
 
-**Role:** ${agent.role}
+**Role:** ${safeRole}
 
 ## Soul
-${agent.soul}
+${safeSoul}
 
 ## System Prompt
-${agent.system_prompt}
+${safeSystemPrompt}
 `
     await writeFile(filePath, content)
     created.push(filePath)
@@ -131,24 +173,33 @@ ${agent.system_prompt}
   await mkdir(opencodeDir, { recursive: true })
 
   for (const agent of agents) {
-    const filePath = join(opencodeDir, `${agent.name}.md`)
+    const filePath = resolveAgentFilePath(opencodeDir, agent.name)
+    if (!filePath) {
+      console.warn(`[fyso] skipping agent with unsafe name: ${JSON.stringify(agent.name)}`)
+      continue
+    }
     if (existsSync(filePath)) await rm(filePath)
     const color = getColor(agent.role)
+    const description = `${agent.role} -- ${agent.display_name}`
+    const safeSoul = sanitizeMarkdownBody(agent.soul)
+    const safeSystemPrompt = sanitizeMarkdownBody(agent.system_prompt)
+    const safeDisplay = sanitizeMarkdownBody(agent.display_name)
+    const safeRole = sanitizeMarkdownBody(agent.role)
     const content = `---
-description: "${agent.role} -- ${agent.display_name}"
+description: ${yamlString(description)}
 mode: subagent
-color: "${color}"
+color: ${yamlString(color)}
 ---
 
-# ${agent.display_name}
+# ${safeDisplay}
 
-You are **${agent.display_name}**, a specialized agent with the role of **${agent.role}**.
+You are **${safeDisplay}**, a specialized agent with the role of **${safeRole}**.
 
 ## Soul
-${agent.soul}
+${safeSoul}
 
 ## System Prompt
-${agent.system_prompt}
+${safeSystemPrompt}
 `
     await writeFile(filePath, content)
     created.push(filePath)
