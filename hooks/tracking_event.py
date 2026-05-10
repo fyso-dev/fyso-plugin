@@ -16,6 +16,8 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
 from lib import tracking_common as tc  # noqa: E402
 
+_SUMMARY_EVENTS = ("session_end", "session_update")
+
 
 def _read_hook_json():
     tmpfile = os.environ.get("TMPFILE", "")
@@ -61,7 +63,7 @@ def _session_id(hook):
 def _detail(event_type, tool_input, state):
     if event_type == "session_start":
         return "session start"
-    if event_type in ("session_end", "session_update"):
+    if event_type in _SUMMARY_EVENTS:
         last_text = state.get("last_text", "")
         tools_used = state.get("tools_used", [])
         if last_text:
@@ -77,89 +79,58 @@ def _detail(event_type, tool_input, state):
     return detail
 
 
-def main():
-    config = tc.load_config()
-    if not config or not config.get("token") or not config.get("tenant_id"):
-        return
-
-    _, default_family = tc.load_pricing()
-
-    hook = _read_hook_json()
-    event_type = os.environ.get("EVENT_TYPE", "session")
-    hook_cwd = hook.get("cwd", os.getcwd())
-    team_name = tc.resolve_team_name(hook_cwd)
-
-    session_id = _session_id(hook)
-    tool_name = hook.get("tool_name", "")
-    tool_input = hook.get("tool_input", {}) or {}
-    tool_response = hook.get("tool_response", {}) or {}
-
-    agent = ""
-    if isinstance(tool_input, dict):
-        agent = tool_input.get("subagent_type", "") or tool_input.get("name", "") or ""
-
-    input_tokens, output_tokens, cache_creation, cache_read = _per_event_tokens(tool_response)
-    tokens = tc.total_tokens(input_tokens, output_tokens, cache_creation, cache_read)
-
-    message_id = ""
-    if isinstance(tool_response, dict):
-        message_id = tool_response.get("id", "") or tool_response.get("requestId", "") or ""
-    if not message_id:
-        message_id = hook.get("requestId", "") or ""
-
-    transcript_path = hook.get("transcript_path", "")
+def _process_transcript(transcript_path, with_summary):
+    """Read a transcript file and return (state, line_count). On error, returns
+    a fresh state and 0, plus logs the error to the debug log."""
     state = tc.transcript_state()
     line_count = 0
-    collect_summary = event_type in ("session_end", "session_update")
+    if not transcript_path or not os.path.exists(transcript_path):
+        return state, line_count
+    try:
+        with open(transcript_path, encoding="utf-8", errors="replace") as tf:
+            for raw_line in tf:
+                line = raw_line.strip()
+                if not line:
+                    continue
+                line_count += 1
+                msg = tc.parse_transcript_message(line)
+                if msg is None:
+                    continue
+                tc.accumulate_usage(msg, state)
+                if with_summary:
+                    tc.collect_summary(msg, state, recent_tools_window=5, min_text_len=10)
+        session_tokens = tc.total_tokens(
+            state["input"], state["output"], state["cache_creation"], state["cache_read"]
+        )
+        tc.debug_log(
+            f"TRANSCRIPT: path={transcript_path} lines={line_count} "
+            f"usage_entries={state['usage_count']} model_entries={state['model_count']} "
+            f"model={state['model']} session_tokens={session_tokens}"
+        )
+    except Exception as e:
+        tc.debug_log(f"TRANSCRIPT_ERROR: {e}")
+    return state, line_count
 
-    if transcript_path and os.path.exists(transcript_path):
-        try:
-            with open(transcript_path, encoding="utf-8", errors="replace") as tf:
-                for raw_line in tf:
-                    line = raw_line.strip()
-                    if not line:
-                        continue
-                    line_count += 1
-                    tc.apply_transcript_line(
-                        line,
-                        state,
-                        collect_summary=collect_summary,
-                        recent_tools_window=5,
-                        min_text_len=10,
-                    )
-            session_tokens = tc.total_tokens(
-                state["input"], state["output"], state["cache_creation"], state["cache_read"]
-            )
-            tc.debug_log(
-                f"TRANSCRIPT: path={transcript_path} lines={line_count} "
-                f"usage_entries={state['usage_count']} model_entries={state['model_count']} "
-                f"model={state['model']} session_tokens={session_tokens}"
-            )
-        except Exception as e:
-            tc.debug_log(f"TRANSCRIPT_ERROR: {e}")
 
-    model = state["model"] or tc.DEFAULT_MODEL_FALLBACK
-    detail = _detail(event_type, tool_input, state)
+def _message_id(hook, tool_response):
+    if isinstance(tool_response, dict):
+        mid = tool_response.get("id", "") or tool_response.get("requestId", "")
+        if mid:
+            return mid
+    return hook.get("requestId", "") or ""
 
-    if event_type in ("session_end", "session_update"):
-        tokens = 0
-        input_tokens = 0
-        output_tokens = 0
-        cache_creation = 0
-        cache_read = 0
 
-    session_input = state["input"]
-    session_output = state["output"]
-    session_cache_creation = state["cache_creation"]
-    session_cache_read = state["cache_read"]
-    session_tokens = tc.total_tokens(
-        session_input, session_output, session_cache_creation, session_cache_read
-    )
+def _agent_name(tool_input):
+    if not isinstance(tool_input, dict):
+        return ""
+    return tool_input.get("subagent_type", "") or tool_input.get("name", "") or ""
 
-    model_family = tc.infer_model_family(model, default_family)
-    user = config.get("user_email", "") or getpass.getuser()
 
-    data = tc.strip_none({
+def _build_payload(*, event_type, tool_name, agent, detail, team_name, user, session_id,
+                   model, model_family, message_id, per_event, session_totals, cwd):
+    input_tokens, output_tokens, cache_creation, cache_read, tokens = per_event
+    s_in, s_out, s_cw, s_cr, s_total = session_totals
+    return tc.strip_none({
         "event": event_type,
         "tool": tool_name or None,
         "agent": agent or None,
@@ -175,14 +146,67 @@ def main():
         "output_tokens": output_tokens,
         "cache_creation_tokens": cache_creation,
         "cache_read_tokens": cache_read,
-        "session_tokens": session_tokens,
-        "session_input_tokens": session_input,
-        "session_output_tokens": session_output,
-        "session_cache_creation_tokens": session_cache_creation,
-        "session_cache_read_tokens": session_cache_read,
-        "cwd": hook.get("cwd", os.getcwd()) or None,
+        "session_tokens": s_total,
+        "session_input_tokens": s_in,
+        "session_output_tokens": s_out,
+        "session_cache_creation_tokens": s_cw,
+        "session_cache_read_tokens": s_cr,
+        "cwd": cwd or None,
         "timestamp": tc.utc_now_iso(),
     })
+
+
+def main():
+    config = tc.load_config()
+    if not config or not config.get("token") or not config.get("tenant_id"):
+        return
+
+    _, default_family = tc.load_pricing()
+
+    hook = _read_hook_json()
+    event_type = os.environ.get("EVENT_TYPE", "session")
+    hook_cwd = hook.get("cwd", os.getcwd())
+    team_name = tc.resolve_team_name(hook_cwd)
+
+    tool_name = hook.get("tool_name", "")
+    tool_input = hook.get("tool_input", {}) or {}
+    tool_response = hook.get("tool_response", {}) or {}
+
+    in_t, out_t, cw_t, cr_t = _per_event_tokens(tool_response)
+    if event_type in _SUMMARY_EVENTS:
+        in_t = out_t = cw_t = cr_t = 0
+    tokens = tc.total_tokens(in_t, out_t, cw_t, cr_t)
+
+    state, _ = _process_transcript(
+        hook.get("transcript_path", ""),
+        with_summary=event_type in _SUMMARY_EVENTS,
+    )
+
+    model = state["model"] or tc.DEFAULT_MODEL_FALLBACK
+    model_family = tc.infer_model_family(model, default_family)
+    detail = _detail(event_type, tool_input, state)
+    user = config.get("user_email", "") or getpass.getuser()
+
+    s_in, s_out, s_cw, s_cr = (
+        state["input"], state["output"], state["cache_creation"], state["cache_read"]
+    )
+    s_total = tc.total_tokens(s_in, s_out, s_cw, s_cr)
+
+    data = _build_payload(
+        event_type=event_type,
+        tool_name=tool_name,
+        agent=_agent_name(tool_input),
+        detail=detail,
+        team_name=team_name,
+        user=user,
+        session_id=_session_id(hook),
+        model=model,
+        model_family=model_family,
+        message_id=_message_id(hook, tool_response),
+        per_event=(in_t, out_t, cw_t, cr_t, tokens),
+        session_totals=(s_in, s_out, s_cw, s_cr, s_total),
+        cwd=hook.get("cwd", os.getcwd()),
+    )
 
     tc.debug_log(f"PAYLOAD: {json.dumps(data)}")
 

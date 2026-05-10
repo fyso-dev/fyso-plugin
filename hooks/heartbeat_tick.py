@@ -15,6 +15,73 @@ from lib import tracking_common as tc  # noqa: E402
 _RECENT_WINDOW = 50
 
 
+def _read_lines(transcript_path):
+    try:
+        with open(transcript_path) as f:
+            return [ln.strip() for ln in f]
+    except Exception:
+        return None
+
+
+def _process_transcript(lines):
+    """Walk the transcript once, accumulating totals on `state` and recent-window
+    summary on `summary_state`. Returns (state, summary_state)."""
+    state = tc.transcript_state()
+    summary_state = tc.transcript_state()
+    recent_start = max(0, len(lines) - _RECENT_WINDOW)
+    for idx, line in enumerate(lines):
+        if not line:
+            continue
+        msg = tc.parse_transcript_message(line)
+        if msg is None:
+            continue
+        tc.accumulate_usage(msg, state)
+        if idx >= recent_start:
+            tc.accumulate_usage(msg, summary_state)
+            tc.collect_summary(
+                msg,
+                summary_state,
+                recent_tools_window=3,
+                min_text_len=5,
+                text_truncate=100,
+            )
+    return state, summary_state
+
+
+def _build_detail(summary_state):
+    parts = []
+    tools_used = summary_state["tools_used"]
+    last_text = summary_state["last_text"]
+    if tools_used:
+        parts.append(", ".join(tools_used[-5:]))
+    if last_text:
+        parts.append(last_text.split("\n")[0][:80])
+    detail = " | ".join(parts) if parts else "idle"
+    return detail[:200]
+
+
+def _build_payload(*, detail, team_name, user, session_id, model, family,
+                   totals, cost, cwd):
+    total_in, total_out, total_cw, total_cr, total = totals
+    return tc.strip_none({
+        "event": "heartbeat",
+        "detail": detail,
+        "team_name": team_name or None,
+        "user": user,
+        "session_id": session_id or None,
+        "model": model or None,
+        "model_family": family or None,
+        "tokens": total if total > 0 else None,
+        "input_tokens": total_in if total_in > 0 else None,
+        "output_tokens": total_out if total_out > 0 else None,
+        "cache_creation_tokens": total_cw if total_cw > 0 else None,
+        "cache_read_tokens": total_cr if total_cr > 0 else None,
+        "cost_usd": round(cost, 6) if cost > 0 else None,
+        "cwd": cwd or None,
+        "timestamp": tc.utc_now_iso(),
+    })
+
+
 def main():
     config = tc.load_config()
     if not config:
@@ -29,74 +96,34 @@ def main():
     session_id = os.environ.get("SESSION_ID", "")
     team_name = tc.resolve_team_name(cwd or os.getcwd())
 
-    try:
-        with open(transcript_path) as f:
-            lines = [ln.strip() for ln in f]
-    except Exception:
+    lines = _read_lines(transcript_path)
+    if lines is None:
         return
 
     pricing, default_family = tc.load_pricing()
+    state, summary_state = _process_transcript(lines)
 
-    state = tc.transcript_state()
-    summary_state = tc.transcript_state()
-
-    recent_start = max(0, len(lines) - _RECENT_WINDOW)
-    for idx, line in enumerate(lines):
-        if not line:
-            continue
-        tc.apply_transcript_line(line, state)
-        if idx >= recent_start:
-            tc.apply_transcript_line(
-                line,
-                summary_state,
-                collect_summary=True,
-                recent_tools_window=3,
-                min_text_len=5,
-                text_truncate=100,
-            )
-
-    tools_used = summary_state["tools_used"]
-    last_text = summary_state["last_text"]
-    parts = []
-    if tools_used:
-        parts.append(", ".join(tools_used[-5:]))
-    if last_text:
-        parts.append(last_text.split("\n")[0][:80])
-    detail = " | ".join(parts) if parts else "idle"
-    if len(detail) > 200:
-        detail = detail[:200]
-
-    total_input = state["input"]
-    total_output = state["output"]
-    total_cache_creation = state["cache_creation"]
-    total_cache_read = state["cache_read"]
-    total = tc.total_tokens(total_input, total_output, total_cache_creation, total_cache_read)
+    total_in = state["input"]
+    total_out = state["output"]
+    total_cw = state["cache_creation"]
+    total_cr = state["cache_read"]
+    total = tc.total_tokens(total_in, total_out, total_cw, total_cr)
 
     model = state["model"] or tc.DEFAULT_MODEL_FALLBACK
     family = tc.infer_model_family(model, default_family)
-    cost = tc.calculate_cost(
-        family, pricing, total_input, total_output, total_cache_creation, total_cache_read
+    cost = tc.calculate_cost(family, pricing, total_in, total_out, total_cw, total_cr)
+
+    data = _build_payload(
+        detail=_build_detail(summary_state),
+        team_name=team_name,
+        user=config.get("user_email", "") or os.environ.get("USER", ""),
+        session_id=session_id,
+        model=model,
+        family=family,
+        totals=(total_in, total_out, total_cw, total_cr, total),
+        cost=cost,
+        cwd=cwd,
     )
-
-    user_email = config.get("user_email", "")
-
-    data = tc.strip_none({
-        "event": "heartbeat",
-        "detail": detail,
-        "team_name": team_name or None,
-        "user": user_email or os.environ.get("USER", ""),
-        "session_id": session_id or None,
-        "model": model or None,
-        "model_family": family or None,
-        "tokens": total if total > 0 else None,
-        "input_tokens": total_input if total_input > 0 else None,
-        "output_tokens": total_output if total_output > 0 else None,
-        "cache_creation_tokens": total_cache_creation if total_cache_creation > 0 else None,
-        "cache_read_tokens": total_cache_read if total_cache_read > 0 else None,
-        "cost_usd": round(cost, 6) if cost > 0 else None,
-        "cwd": cwd or None,
-        "timestamp": tc.utc_now_iso(),
-    })
 
     if tc.is_debug_enabled():
         tc.debug_log(f"=== {tc.utc_now_iso()} === EVENT=heartbeat ===")

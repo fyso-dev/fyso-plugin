@@ -93,63 +93,73 @@ def transcript_state():
     }
 
 
-def apply_transcript_line(
-    line,
-    state,
-    collect_summary=False,
-    recent_tools_window=3,
-    min_text_len=5,
-    text_truncate=None,
-):
-    """Parse a single JSONL transcript entry and update `state` in-place.
-
-    Returns True if the line yielded a parseable message entry, False otherwise.
-    Empty lines / malformed JSON are silently skipped (and counted as False).
-    """
+def parse_transcript_message(line):
+    """Return the `message` dict from a JSONL transcript line, or None."""
     if not line:
-        return False
+        return None
     try:
         entry = json.loads(line)
     except Exception:
-        return False
+        return None
     msg = entry.get("message", {})
-    if not isinstance(msg, dict):
-        return False
+    return msg if isinstance(msg, dict) else None
 
+
+def accumulate_usage(msg, state):
+    """Update token + model counters in `state` from a parsed message."""
+    if not isinstance(msg, dict):
+        return
     m = msg.get("model", "")
     if m:
         state["model"] = m
         state["model_count"] += 1
 
     u = msg.get("usage", {})
-    if isinstance(u, dict) and u:
-        si = u.get("input_tokens", 0) or 0
-        so = u.get("output_tokens", 0) or 0
-        scw = u.get("cache_creation_input_tokens", 0) or 0
-        scr = u.get("cache_read_input_tokens", 0) or 0
-        if si or so or scw or scr:
-            state["usage_count"] += 1
-            state["input"] += si
-            state["output"] += so
-            state["cache_creation"] += scw
-            state["cache_read"] += scr
+    if not isinstance(u, dict) or not u:
+        return
+    si = u.get("input_tokens", 0) or 0
+    so = u.get("output_tokens", 0) or 0
+    scw = u.get("cache_creation_input_tokens", 0) or 0
+    scr = u.get("cache_read_input_tokens", 0) or 0
+    if not (si or so or scw or scr):
+        return
+    state["usage_count"] += 1
+    state["input"] += si
+    state["output"] += so
+    state["cache_creation"] += scw
+    state["cache_read"] += scr
 
-    if collect_summary:
-        content = msg.get("content", [])
-        if isinstance(content, list):
-            for c in content:
-                if not isinstance(c, dict):
-                    continue
-                if c.get("type") == "tool_use":
-                    name = c.get("name", "")
-                    if name and name not in state["tools_used"][-recent_tools_window:]:
-                        state["tools_used"].append(name)
-                if c.get("type") == "text" and msg.get("role") == "assistant":
-                    t = c.get("text", "").strip()
-                    if t and len(t) > min_text_len:
-                        state["last_text"] = t[:text_truncate] if text_truncate else t
 
-    return True
+def _record_tool_use(c, state, recent_tools_window):
+    name = c.get("name", "")
+    if name and name not in state["tools_used"][-recent_tools_window:]:
+        state["tools_used"].append(name)
+
+
+def _record_assistant_text(c, msg, state, min_text_len, text_truncate):
+    if msg.get("role") != "assistant":
+        return
+    t = c.get("text", "").strip()
+    if not t or len(t) <= min_text_len:
+        return
+    state["last_text"] = t[:text_truncate] if text_truncate else t
+
+
+def collect_summary(msg, state, recent_tools_window=3, min_text_len=5, text_truncate=None):
+    """Collect recent tool names + latest assistant text from a parsed message."""
+    if not isinstance(msg, dict):
+        return
+    content = msg.get("content", [])
+    if not isinstance(content, list):
+        return
+    for c in content:
+        if not isinstance(c, dict):
+            continue
+        ctype = c.get("type")
+        if ctype == "tool_use":
+            _record_tool_use(c, state, recent_tools_window)
+        elif ctype == "text":
+            _record_assistant_text(c, msg, state, min_text_len, text_truncate)
 
 
 def is_debug_enabled():
@@ -170,7 +180,7 @@ def debug_log(message):
 
 
 def utc_now_iso():
-    return datetime.datetime.utcnow().isoformat() + "Z"
+    return datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None).isoformat() + "Z"
 
 
 def strip_none(payload):
