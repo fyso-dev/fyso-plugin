@@ -3,6 +3,7 @@ import { tool } from "@opencode-ai/plugin"
 import { createTracker } from "./tracking"
 import { readConfig, readTeamConfig } from "./config"
 import { listTeams, fetchTeamAgents, syncAgentsToDirectory } from "./tools/sync-team"
+import { listAgents, createTeam, assignAgents } from "./tools/create-team"
 import { writeFile, mkdir } from "fs/promises"
 import { join } from "path"
 
@@ -91,6 +92,70 @@ export const FysoPlugin: Plugin = async (ctx) => {
             "- **OpenCode**: via @ mention",
           ]
           return summary.join("\n")
+        },
+      }),
+
+      "fyso-create-team": tool({
+        description:
+          "Create a new Fyso agent team. Call with no args to list available agents for selection; call with name to create the team. Optionally assigns initial agents.",
+        args: {
+          name: tool.schema
+            .string()
+            .optional()
+            .describe("Team name. If omitted, the tool lists available agents instead."),
+          prompt: tool.schema
+            .string()
+            .optional()
+            .describe("Team system prompt -- shared instructions for all agents on the team."),
+          description: tool.schema
+            .string()
+            .optional()
+            .describe("Short human-readable description of the team."),
+          agent_ids: tool.schema
+            .array(tool.schema.string())
+            .optional()
+            .describe("IDs of agents to assign to the team at creation."),
+        },
+        async execute(args) {
+          const config = await readConfig()
+          if (!config) {
+            return "No Fyso credentials found. Run the sync-team skill first to configure credentials at ~/.fyso/config.json, or visit https://agent-ui-sites.fyso.dev/ to get your token."
+          }
+
+          if (!args.name) {
+            const agents = await listAgents(config)
+            if (!agents.length) {
+              return "No agents found in your Fyso account. Create agents in the Fyso dashboard before assembling a team."
+            }
+            const list = agents
+              .map((a, i) => `${i + 1}. **${a.display_name}** (${a.role}) -- ID: ${a.id}`)
+              .join("\n")
+            return `Available agents to assign:\n\n${list}\n\nCall this tool again with name, prompt, description, and agent_ids to create the team.`
+          }
+
+          const created = await createTeam(config, {
+            name: args.name,
+            prompt: args.prompt,
+            description: args.description,
+          })
+
+          let assignedCount = 0
+          if (args.agent_ids?.length) {
+            const assigned = await assignAgents(config, created.id, args.agent_ids)
+            assignedCount = assigned.length
+          }
+
+          const summary = [
+            `Team **${created.name}** created (ID: ${created.id}).`,
+            created.description ? `Description: ${created.description}` : "",
+            created.prompt ? "Team prompt saved." : "No team prompt set.",
+            assignedCount
+              ? `Assigned ${assignedCount} agent(s) to the team.`
+              : "No agents assigned yet -- use the Fyso dashboard or call this tool again with agent_ids.",
+            "",
+            "Run /fyso:sync-team (Claude Code) or the fyso-sync-team tool (OpenCode) to pull this team into the current project.",
+          ]
+          return summary.filter(Boolean).join("\n")
         },
       }),
     },
