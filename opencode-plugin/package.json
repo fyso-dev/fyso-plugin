@@ -1,6 +1,6 @@
 {
   "name": "@fyso/opencode-plugin",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Official Fyso plugin for OpenCode — tracking, team sync, and session management for building ERPs with natural language",
   "type": "module",
   "main": "src/index.ts",

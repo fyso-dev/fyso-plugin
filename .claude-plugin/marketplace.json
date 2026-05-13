@@ -14,7 +14,7 @@
       "name": "fyso",
       "source": "./",
       "description": "Universal Fyso plugin for AI coding agents. 16 skills, 5 agents, team sync, tracking, and auto-synced reference docs. Works with Claude Code and OpenCode.",
-      "version": "2.0.0",
+      "version": "2.1.0",
       "author": { "name": "Fyso" },
       "homepage": "https://fyso.dev",
       "repository": "https://github.com/fyso-dev/fyso-plugin",
