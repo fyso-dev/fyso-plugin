@@ -8,7 +8,7 @@ Universal Fyso plugin for AI coding agents. Build complete business apps from co
 
 | Component | Count | Description |
 |-----------|-------|-------------|
-| **Skills** | 16 | Slash commands (`/fyso:plan`, `/fyso:build`, etc.) — shared across both platforms |
+| **Skills** | 17 | Slash commands (`/fyso:plan`, `/fyso:build`, etc.) — shared across both platforms |
 | **Agents** | 5 | Specialized subagents (architect, designer, builder, verifier, ui-architect) |
 | **Team Sync** | 1 | Sync Fyso agent teams to local directories |
 | **Tracking** | hooks | Session tracking, agent dispatch, heartbeat |
@@ -104,7 +104,7 @@ On first use, the MCP server opens an OAuth flow to connect your Fyso account.
 
 ### Full Skill List
 
-All 16 skills are top-level slash commands. Several skills accept subcommands (shown in the second column).
+All 17 skills are top-level slash commands. Several skills accept subcommands (shown in the second column).
 
 | Skill | Subcommands | Description |
 |-------|-------------|-------------|
@@ -124,6 +124,7 @@ All 16 skills are top-level slash commands. Several skills accept subcommands (s
 | `test` | — | Test runner for rules |
 | `welcome` | — | Guided onboarding |
 | `sync-team` | — | Sync Fyso agent teams to local directories |
+| `create-team` | — | Create a new Fyso agent team from the plugin (wizard) |
 
 ## Agents
 
@@ -150,6 +151,15 @@ Sync agent teams defined in Fyso to your local environment:
 4. Agent files are created for both platforms:
    - Claude Code: `.claude/agents/{name}.md`
    - OpenCode: `.opencode/agents/{name}.md`
+
+## Team Creation
+
+Create new agent teams without leaving your IDE:
+
+- **Claude Code:** `/fyso:create-team` runs a wizard that asks for name, description, prompt, and which agents to assign.
+- **OpenCode:** ask the agent to use the `fyso-create-team` tool (call it with no args to list available agents, then again with `name`, `prompt`, `description`, and `agent_ids` to persist the team).
+
+Both flows POST to `/api/entities/teams/records` and `/api/entities/team_agents/records`. After creation, run `sync-team` to pull the new team into the current project.
 
 ## Tracking
 
