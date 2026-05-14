@@ -25,12 +25,19 @@ if [ -f "$HOME/.fyso/debug" ]; then
 fi
 
 # Single python call: read config + parse stdin + build payload + send
-export TMPFILE EVENT_TYPE PRICING_FILE
+export TMPFILE EVENT_TYPE PRICING_FILE FYSO_HOOKS_DIR="$SCRIPT_DIR"
 python3 << 'PYEOF'
 import json, re, datetime, os, sys, getpass, hashlib
 try:
     import urllib.request
 except:
+    sys.exit(0)
+
+# Import shared tracking library (PRICING + infer_model_family + transcript parser)
+sys.path.insert(0, os.environ.get("FYSO_HOOKS_DIR", os.path.dirname(os.path.abspath(__file__))))
+try:
+    from _tracking_lib import load_pricing, infer_model_family, parse_transcript_usage
+except Exception:
     sys.exit(0)
 
 config_path = os.path.expanduser("~/.fyso/config.json")
@@ -49,13 +56,7 @@ if not token or not tenant:
     sys.exit(0)
 
 # Load shared pricing source of truth (PRICING table + default_family)
-DEFAULT_FAMILY = "opus"
-try:
-    with open(os.environ.get("PRICING_FILE", "")) as pf:
-        _pdata = json.load(pf)
-    DEFAULT_FAMILY = _pdata.get("default_family", "opus")
-except:
-    pass
+_PRICING, DEFAULT_FAMILY = load_pricing()
 
 # Read stdin JSON from temp file (once)
 tmpfile = os.environ.get("TMPFILE", "")
@@ -141,83 +142,53 @@ if isinstance(tool_response, dict):
 if not message_id and isinstance(hook, dict):
     message_id = hook.get("requestId", "") or ""
 
-# Single-pass transcript read: extract model, usage, and summary in one go
+# Single-pass transcript read: shared lib accumulates session usage and last-seen model.
+# Only retain raw lines when the caller will run a second pass (session_end summary).
 transcript_path = hook.get("transcript_path", "")
-session_tokens = 0
-session_input = 0
-session_output = 0
-session_cache_creation = 0
-session_cache_read = 0
+_needs_summary = event_type in ("session_end", "session_update")
+_t = parse_transcript_usage(transcript_path, retain_lines=_needs_summary)
+session_input = _t["input"]
+session_output = _t["output"]
+session_cache_creation = _t["cache_creation"]
+session_cache_read = _t["cache_read"]
+session_tokens = session_input + session_output + session_cache_creation + session_cache_read
+if _t["model"]:
+    model = _t["model"]
 _summary = ""
+_last_text = ""
+_tools_used = []
 
-if transcript_path and os.path.exists(transcript_path):
-    debug_log = os.path.expanduser("~/.fyso/debug")
-    is_debug = os.path.exists(debug_log)
-    _last_text = ""
-    _tools_used = []
-    _line_count = 0
-    _usage_count = 0
-    _model_count = 0
+# Per-script summary pass (only for session_end/session_update) — distinct dedup
+# window and length thresholds vs heartbeat.sh, kept inline by design.
+if _needs_summary:
+    for raw_line in _t["lines"]:
+        try:
+            entry = json.loads(raw_line)
+        except:
+            continue
+        msg = entry.get("message", {})
+        if not isinstance(msg, dict):
+            continue
+        content = msg.get("content", [])
+        if isinstance(content, list):
+            for c in content:
+                if isinstance(c, dict):
+                    if c.get("type") == "tool_use":
+                        name = c.get("name", "")
+                        if name and name not in _tools_used[-5:]:
+                            _tools_used.append(name)
+                    if c.get("type") == "text" and msg.get("role") == "assistant":
+                        t = c.get("text", "").strip()
+                        if t and len(t) > 10:
+                            _last_text = t
+
+if transcript_path and os.path.exists(os.path.expanduser("~/.fyso/debug")):
+    log_path = os.path.expanduser("~/.fyso/hook-debug.log")
     try:
-        with open(transcript_path, encoding="utf-8", errors="replace") as tf:
-            for raw_line in tf:
-                raw_line = raw_line.strip()
-                if not raw_line:
-                    continue
-                _line_count += 1
-                try:
-                    entry = json.loads(raw_line)
-                except:
-                    continue
-                msg = entry.get("message", {})
-                if not isinstance(msg, dict):
-                    continue
-
-                # Model (keep last seen)
-                m = msg.get("model", "")
-                if m:
-                    model = m
-                    _model_count += 1
-
-                # Usage (accumulate for session totals)
-                u = msg.get("usage", {})
-                if isinstance(u, dict) and u:
-                    si = u.get("input_tokens", 0) or 0
-                    so = u.get("output_tokens", 0) or 0
-                    scw = u.get("cache_creation_input_tokens", 0) or 0
-                    scr = u.get("cache_read_input_tokens", 0) or 0
-                    if si or so or scw or scr:
-                        _usage_count += 1
-                        session_input += si
-                        session_output += so
-                        session_cache_creation += scw
-                        session_cache_read += scr
-
-                # Summary text (for session_end/session_update detail)
-                if event_type in ("session_end", "session_update"):
-                    content = msg.get("content", [])
-                    if isinstance(content, list):
-                        for c in content:
-                            if isinstance(c, dict):
-                                if c.get("type") == "tool_use":
-                                    name = c.get("name", "")
-                                    if name and name not in _tools_used[-5:]:
-                                        _tools_used.append(name)
-                                if c.get("type") == "text" and msg.get("role") == "assistant":
-                                    t = c.get("text", "").strip()
-                                    if t and len(t) > 10:
-                                        _last_text = t
-        session_tokens = session_input + session_output + session_cache_creation + session_cache_read
-
-        if is_debug:
-            log_path = os.path.expanduser("~/.fyso/hook-debug.log")
-            with open(log_path, "a") as dl:
-                dl.write(f"TRANSCRIPT: path={transcript_path} lines={_line_count} usage_entries={_usage_count} model_entries={_model_count} model={model} session_tokens={session_tokens}\n")
-    except Exception as e:
-        if os.path.exists(os.path.expanduser("~/.fyso/debug")):
-            log_path = os.path.expanduser("~/.fyso/hook-debug.log")
-            with open(log_path, "a") as dl:
-                dl.write(f"TRANSCRIPT_ERROR: {e}\n")
+        with open(log_path, "a") as dl:
+            dl.write(f"TRANSCRIPT: path={transcript_path} lines={_t['line_count']} usage_entries={_t['usage_count']} model_entries={_t['model_count']} model={model} session_tokens={session_tokens}\n")
+    except Exception:
+        pass
 
 # Fallback: default to opus (Claude Code default model)
 if not model:
@@ -237,8 +208,8 @@ if event_type in ("session_end", "session_update"):
     cache_creation_tokens = 0
     cache_read_tokens = 0
 
-# Model family (for business rule cost calculation server-side)
-model_family = "opus" if "opus" in model else "sonnet" if "sonnet" in model else "haiku" if "haiku" in model else DEFAULT_FAMILY
+# Model family (for business rule cost calculation server-side) — shared logic
+model_family = infer_model_family(model, DEFAULT_FAMILY)
 
 # User
 user = user_email or getpass.getuser()
