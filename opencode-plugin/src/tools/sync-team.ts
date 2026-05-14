@@ -38,7 +38,7 @@ function firstLineOf(text: string, fallback: string): string {
   return line || fallback
 }
 
-async function writeMarkerSection(filePath: string, content: string): Promise<void> {
+export async function writeMarkerSection(filePath: string, content: string): Promise<void> {
   const START = "<!-- FYSO TEAM START -->"
   const END = "<!-- FYSO TEAM END -->"
   const section = `${START}\n${content}\n${END}`
