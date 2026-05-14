@@ -87,11 +87,11 @@ export function createTracker() {
   }
   let lastModel = ""
 
-  async function send(event: Partial<TrackingEvent> & { event: string }) {
+  async function send(
+    config: NonNullable<Awaited<ReturnType<typeof readConfig>>>,
+    event: Partial<TrackingEvent> & { event: string },
+  ) {
     try {
-      const config = await readConfig()
-      if (!config) return
-
       const payload: Record<string, unknown> = {
         ...event,
         timestamp: new Date().toISOString(),
@@ -108,20 +108,21 @@ export function createTracker() {
     }
   }
 
-  async function resolveContext(directory: string | undefined) {
+  async function resolveContext(directory: string | undefined, modelOverride?: string) {
     const config = await readConfig()
     if (!config) return null
     const team = await readTeamConfig(directory || process.cwd())
-    const model = lastModel || DEFAULT_MODEL
+    const model = modelOverride || lastModel || DEFAULT_MODEL
     const family = inferModelFamily(model)
-    return { config, team, model, family }
+    const user = config.user_email || userInfo().username
+    return { config, team, user, model, family }
   }
 
   return {
     async sessionStart(ctx: { sessionID?: string; directory?: string }) {
-      const resolved = await resolveContext(ctx.directory)
+      const resolved = await resolveContext(ctx.directory, DEFAULT_MODEL)
       if (!resolved) return
-      const { config, team, model, family } = resolved
+      const { config, team, user, model, family } = resolved
       const sessionId =
         ctx.sessionID ||
         createHash("md5")
@@ -129,11 +130,11 @@ export function createTracker() {
           .digest("hex")
           .slice(0, 12)
 
-      await send({
+      await send(config, {
         event: "session_start",
         detail: "session start",
         team_name: team?.team_name,
-        user: config.user_email || userInfo().username,
+        user,
         session_id: sessionId,
         model,
         model_family: family,
@@ -152,10 +153,10 @@ export function createTracker() {
       cache_creation_tokens?: number
       cache_read_tokens?: number
     }) {
-      if (ctx.model) lastModel = ctx.model
-      const resolved = await resolveContext(ctx.directory)
+      const resolved = await resolveContext(ctx.directory, ctx.model)
       if (!resolved) return
-      const { config, team, model, family } = resolved
+      const { config, team, user, model, family } = resolved
+      if (ctx.model) lastModel = ctx.model
 
       const inputTokens = ctx.input_tokens || 0
       const outputTokens = ctx.output_tokens || 0
@@ -168,12 +169,12 @@ export function createTracker() {
       sessionTokens.cache_creation += cacheCreation
       sessionTokens.cache_read += cacheRead
 
-      await send({
+      await send(config, {
         event: "agent_dispatch",
         tool: ctx.tool,
         agent: ctx.agent,
         team_name: team?.team_name,
-        user: config.user_email || userInfo().username,
+        user,
         session_id: ctx.sessionID,
         model,
         model_family: family,
@@ -194,14 +195,14 @@ export function createTracker() {
     async sessionEnd(ctx: { sessionID?: string; directory?: string }) {
       const resolved = await resolveContext(ctx.directory)
       if (!resolved) return
-      const { config, team, model, family } = resolved
+      const { config, team, user, model, family } = resolved
       const totalTokens = totalSessionTokens(sessionTokens)
 
-      await send({
+      await send(config, {
         event: "session_update",
         detail: "session end",
         team_name: team?.team_name,
-        user: config.user_email || userInfo().username,
+        user,
         session_id: ctx.sessionID,
         model,
         model_family: family,
@@ -229,14 +230,14 @@ export function createTracker() {
     async heartbeat(ctx: { sessionID?: string; directory?: string; detail?: string }) {
       const resolved = await resolveContext(ctx.directory)
       if (!resolved) return
-      const { config, team, model, family } = resolved
+      const { config, team, user, model, family } = resolved
       const totalTokens = totalSessionTokens(sessionTokens)
 
-      await send({
+      await send(config, {
         event: "heartbeat",
         detail: ctx.detail || "idle",
         team_name: team?.team_name,
-        user: config.user_email || userInfo().username,
+        user,
         session_id: ctx.sessionID,
         model,
         model_family: family,
