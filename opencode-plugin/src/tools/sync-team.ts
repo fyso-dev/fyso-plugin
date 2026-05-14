@@ -38,17 +38,24 @@ function firstLineOf(text: string, fallback: string): string {
   return line || fallback
 }
 
-async function writeMarkerSection(filePath: string, content: string): Promise<void> {
-  const START = "<!-- FYSO TEAM START -->"
-  const END = "<!-- FYSO TEAM END -->"
-  const section = `${START}\n${content}\n${END}`
+export const FYSO_MARKER_START = "<!-- FYSO TEAM START -->"
+export const FYSO_MARKER_END = "<!-- FYSO TEAM END -->"
+
+export async function writeMarkerSection(filePath: string, content: string): Promise<void> {
+  const section = `${FYSO_MARKER_START}\n${content}\n${FYSO_MARKER_END}`
 
   if (existsSync(filePath)) {
     const existing = await readFile(filePath, "utf-8")
-    const startIdx = existing.indexOf(START)
-    const endIdx = existing.indexOf(END)
+    const startIdx = existing.indexOf(FYSO_MARKER_START)
+    const endIdx = existing.lastIndexOf(FYSO_MARKER_END)
     if (startIdx !== -1 && endIdx !== -1) {
-      const updated = existing.slice(0, startIdx) + section + existing.slice(endIdx + END.length)
+      if (endIdx < startIdx) {
+        throw new Error(
+          `writeMarkerSection: malformed markers in ${filePath} — END appears before START. Refusing to modify file to avoid corruption.`,
+        )
+      }
+      const updated =
+        existing.slice(0, startIdx) + section + existing.slice(endIdx + FYSO_MARKER_END.length)
       await writeFile(filePath, updated)
       return
     }
