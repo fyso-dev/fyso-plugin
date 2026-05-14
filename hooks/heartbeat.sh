@@ -35,33 +35,37 @@ while true; do
   python3 << 'PYEOF'
 import json, os, sys, datetime
 
-# Import shared tracking library (PRICING + infer_model_family + cost + transcript parser)
+# Import shared tracking library (single source of truth for config/team/
+# transcript parsing/model family/cost/HTTP send/debug logging).
 sys.path.insert(0, os.environ.get("FYSO_HOOKS_DIR", os.path.dirname(os.path.abspath(__file__))))
 try:
-    from _tracking_lib import load_pricing, infer_model_family, calculate_cost, parse_transcript_usage
+    from _tracking_lib import (
+        load_pricing,
+        infer_model_family,
+        calculate_cost,
+        parse_transcript_usage,
+        summarize_transcript_lines,
+        load_config,
+        load_team_name,
+        debug_log,
+        is_debug,
+        send_tracking_payload,
+    )
 except Exception:
     sys.exit(0)
 
-config_path = os.path.expanduser("~/.fyso/config.json")
-try:
-    cfg = json.load(open(config_path))
-except:
+cfg = load_config()
+if not cfg:
     sys.exit(0)
 
 token = cfg.get("token", "")
 tenant = cfg.get("tenant_id", "")
 api_url = cfg.get("api_url", "https://api.fyso.dev")
-team_name = ""
-try:
-    team_path = os.path.join(os.environ.get("CWD", os.getcwd()), ".fyso", "team.json")
-    if os.path.exists(team_path):
-        team_name = json.load(open(team_path)).get("team_name", "")
-except:
-    pass
 user_email = cfg.get("user_email", "")
 session_id = os.environ.get("SESSION_ID", "")
 transcript = os.environ.get("TRANSCRIPT", "")
 cwd = os.environ.get("CWD", "")
+team_name = load_team_name(cwd or os.getcwd())
 
 if not token or not tenant or not transcript:
     sys.exit(0)
@@ -71,34 +75,18 @@ if not token or not tenant or not transcript:
 _t = parse_transcript_usage(transcript, retain_lines=True)
 lines = _t["lines"]
 
-# Recent activity summary uses just the last 50 lines (smaller dedup window
-# than tracking.sh's session_end summary — kept inline by design).
-# When `lines` is empty (fresh session before first assistant message) the
-# loop is a no-op and the script falls through to emit an "idle" heartbeat,
-# preserving liveness tracking.
+# Recent activity summary uses just the last 50 lines, with a tighter dedup
+# window (3) and looser text threshold (5) than tracking.sh's session_end
+# summary. When `lines` is empty (fresh session before first assistant
+# message) the helper returns ([], "") and we still emit an "idle" heartbeat
+# below, preserving liveness tracking.
 recent = lines[-50:] if len(lines) > 50 else lines
-tools_used = []
-last_text = ""
-for line in recent:
-    try:
-        entry = json.loads(line)
-        msg = entry.get("message", {})
-        if not isinstance(msg, dict):
-            continue
-        content = msg.get("content", [])
-        if isinstance(content, list):
-            for c in content:
-                if isinstance(c, dict):
-                    if c.get("type") == "tool_use":
-                        name = c.get("name", "")
-                        if name and name not in tools_used[-3:]:
-                            tools_used.append(name)
-                    if c.get("type") == "text" and msg.get("role") == "assistant":
-                        t = c.get("text", "").strip()
-                        if t and len(t) > 5:
-                            last_text = t[:100]
-    except:
-        continue
+tools_used, last_text = summarize_transcript_lines(
+    recent,
+    tools_dedup_window=3,
+    text_threshold=5,
+    text_truncate=100,
+)
 
 # Build short summary
 parts = []
@@ -131,7 +119,6 @@ if not model:
 model_family = infer_model_family(model, DEFAULT_FAMILY)
 cost_usd = calculate_cost(model_family, total_input, total_output, total_cache_creation, total_cache_read, PRICING)
 
-import urllib.request
 data = {
     "event": "heartbeat",
     "detail": detail,
@@ -152,36 +139,16 @@ data = {
 data = {k: v for k, v in data.items() if v is not None}
 payload = json.dumps(data).encode()
 
-debug_path = os.path.expanduser("~/.fyso/debug")
-log_path = os.path.expanduser("~/.fyso/hook-debug.log")
-is_debug = os.path.exists(debug_path)
-
-if is_debug:
-    with open(log_path, "a") as dl:
-        dl.write(f"=== {datetime.datetime.utcnow().isoformat()}Z === EVENT=heartbeat ===\n")
-        dl.write(f"TRANSCRIPT: path={transcript} lines={len(lines)} model={model} session_tokens={total_tokens}\n")
-        dl.write(f"PAYLOAD: {payload.decode()}\n")
+if is_debug():
+    debug_log(f"=== {datetime.datetime.utcnow().isoformat()}Z === EVENT=heartbeat ===\n")
+    debug_log(f"TRANSCRIPT: path={transcript} lines={len(lines)} model={model} session_tokens={total_tokens}\n")
+    debug_log(f"PAYLOAD: {payload.decode()}\n")
 
 try:
-    req = urllib.request.Request(
-        f"{api_url}/api/entities/tracking/records",
-        data=payload,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "X-Tenant-ID": tenant,
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
-    resp = urllib.request.urlopen(req, timeout=5)
-    if is_debug:
-        resp_body = resp.read().decode()
-        with open(log_path, "a") as dl:
-            dl.write(f"RESPONSE: {resp.status} {resp_body[:200]}\n\n")
+    status, body = send_tracking_payload(api_url, token, tenant, payload)
+    debug_log(f"RESPONSE: {status} {body[:200]}\n\n")
 except Exception as e:
-    if is_debug:
-        with open(log_path, "a") as dl:
-            dl.write(f"ERROR: {e}\n\n")
+    debug_log(f"ERROR: {e}\n\n")
 PYEOF
 
 done
