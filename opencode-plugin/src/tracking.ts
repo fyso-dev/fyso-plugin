@@ -13,6 +13,7 @@ const pricingData = JSON.parse(
 }
 
 const DEFAULT_FAMILY = pricingData.default_family
+const DEFAULT_MODEL = "claude-opus-4-6"
 
 interface TrackingEvent {
   event: string
@@ -107,11 +108,20 @@ export function createTracker() {
     }
   }
 
+  async function resolveContext(directory: string | undefined) {
+    const config = await readConfig()
+    if (!config) return null
+    const team = await readTeamConfig(directory || process.cwd())
+    const model = lastModel || DEFAULT_MODEL
+    const family = inferModelFamily(model)
+    return { config, team, model, family }
+  }
+
   return {
     async sessionStart(ctx: { sessionID?: string; directory?: string }) {
-      const config = await readConfig()
-      if (!config) return
-      const team = await readTeamConfig(ctx.directory || process.cwd())
+      const resolved = await resolveContext(ctx.directory)
+      if (!resolved) return
+      const { config, team, model, family } = resolved
       const sessionId =
         ctx.sessionID ||
         createHash("md5")
@@ -125,8 +135,8 @@ export function createTracker() {
         team_name: team?.team_name,
         user: config.user_email || userInfo().username,
         session_id: sessionId,
-        model: "claude-opus-4-6",
-        model_family: "opus",
+        model,
+        model_family: family,
         cwd: ctx.directory,
       })
     },
@@ -142,9 +152,10 @@ export function createTracker() {
       cache_creation_tokens?: number
       cache_read_tokens?: number
     }) {
-      const config = await readConfig()
-      if (!config) return
-      const team = await readTeamConfig(ctx.directory || process.cwd())
+      if (ctx.model) lastModel = ctx.model
+      const resolved = await resolveContext(ctx.directory)
+      if (!resolved) return
+      const { config, team, model, family } = resolved
 
       const inputTokens = ctx.input_tokens || 0
       const outputTokens = ctx.output_tokens || 0
@@ -156,10 +167,6 @@ export function createTracker() {
       sessionTokens.output += outputTokens
       sessionTokens.cache_creation += cacheCreation
       sessionTokens.cache_read += cacheRead
-
-      if (ctx.model) lastModel = ctx.model
-      const model = lastModel || "claude-opus-4-6"
-      const family = inferModelFamily(model)
 
       await send({
         event: "agent_dispatch",
@@ -185,11 +192,9 @@ export function createTracker() {
     },
 
     async sessionEnd(ctx: { sessionID?: string; directory?: string }) {
-      const config = await readConfig()
-      if (!config) return
-      const team = await readTeamConfig(ctx.directory || process.cwd())
-      const model = lastModel || "claude-opus-4-6"
-      const family = inferModelFamily(model)
+      const resolved = await resolveContext(ctx.directory)
+      if (!resolved) return
+      const { config, team, model, family } = resolved
       const totalTokens = totalSessionTokens(sessionTokens)
 
       await send({
@@ -222,11 +227,9 @@ export function createTracker() {
     },
 
     async heartbeat(ctx: { sessionID?: string; directory?: string; detail?: string }) {
-      const config = await readConfig()
-      if (!config) return
-      const team = await readTeamConfig(ctx.directory || process.cwd())
-      const model = lastModel || "claude-opus-4-6"
-      const family = inferModelFamily(model)
+      const resolved = await resolveContext(ctx.directory)
+      if (!resolved) return
+      const { config, team, model, family } = resolved
       const totalTokens = totalSessionTokens(sessionTokens)
 
       await send({
