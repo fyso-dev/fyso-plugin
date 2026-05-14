@@ -7,6 +7,10 @@ Single source of truth for:
 - infer_model_family(model)
 - calculate_cost(family, ...)
 - parse_transcript_usage(path) — JSONL session token accumulator.
+- summarize_transcript_lines(...) — tool_use + last assistant text extractor.
+- load_config() / load_team_name(cwd) — config + team.json readers.
+- is_debug() / debug_log(message) — ~/.fyso/debug flag-gated logger.
+- send_tracking_payload(...) — HTTP POST to /api/entities/tracking/records.
 
 The PRICING source-of-truth file can be overridden via the PRICING_FILE
 environment variable; otherwise it resolves relative to this file.
@@ -14,6 +18,7 @@ environment variable; otherwise it resolves relative to this file.
 
 import json
 import os
+import urllib.request
 
 
 _DEFAULT_PRICING_PATH = os.path.normpath(
@@ -134,3 +139,111 @@ def parse_transcript_usage(transcript_path, retain_lines=False):
     except Exception:
         pass
     return result
+
+
+def summarize_transcript_lines(lines, tools_dedup_window, text_threshold, text_truncate=None):
+    """Extract ``(tools_used, last_text)`` from a slice of JSONL transcript lines.
+
+    Both tracking.sh (session_end summary) and heartbeat.sh (recent activity)
+    share this walk but with different knobs:
+
+    - ``tools_dedup_window``: a tool name is appended only if absent from the
+      last N entries of ``tools_used`` (5 for tracking, 3 for heartbeat).
+    - ``text_threshold``: minimum stripped length for assistant text to count
+      (10 for tracking, 5 for heartbeat).
+    - ``text_truncate``: if set, ``last_text`` is sliced to this many chars
+      (None for tracking — caller truncates later; 100 for heartbeat).
+    """
+    tools_used = []
+    last_text = ""
+    for line in lines:
+        try:
+            entry = json.loads(line)
+        except Exception:
+            continue
+        msg = entry.get("message", {})
+        if not isinstance(msg, dict):
+            continue
+        content = msg.get("content", [])
+        if not isinstance(content, list):
+            continue
+        for c in content:
+            if not isinstance(c, dict):
+                continue
+            if c.get("type") == "tool_use":
+                name = c.get("name", "")
+                if name and name not in tools_used[-tools_dedup_window:]:
+                    tools_used.append(name)
+            elif c.get("type") == "text" and msg.get("role") == "assistant":
+                t = c.get("text", "").strip()
+                if t and len(t) > text_threshold:
+                    last_text = t[:text_truncate] if text_truncate else t
+    return tools_used, last_text
+
+
+def load_config(path=None):
+    """Read ``~/.fyso/config.json``. Returns ``dict`` or ``None`` on missing/error."""
+    path = path or os.path.expanduser("~/.fyso/config.json")
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def load_team_name(cwd):
+    """Read ``team_name`` from ``<cwd>/.fyso/team.json``. Returns ``''`` on missing/error."""
+    if not cwd:
+        return ""
+    try:
+        team_path = os.path.join(cwd, ".fyso", "team.json")
+        if os.path.exists(team_path):
+            with open(team_path) as tf:
+                return json.load(tf).get("team_name", "") or ""
+    except Exception:
+        pass
+    return ""
+
+
+_DEBUG_FLAG_PATH = os.path.expanduser("~/.fyso/debug")
+_DEBUG_LOG_PATH = os.path.expanduser("~/.fyso/hook-debug.log")
+
+
+def is_debug():
+    """True iff the ``~/.fyso/debug`` flag file exists."""
+    return os.path.exists(_DEBUG_FLAG_PATH)
+
+
+def debug_log(message):
+    """Append ``message`` to ``~/.fyso/hook-debug.log`` iff debug flag is set.
+
+    The caller is responsible for line terminators so multi-line entries stay
+    formatted as before.
+    """
+    if not is_debug():
+        return
+    try:
+        with open(_DEBUG_LOG_PATH, "a") as dl:
+            dl.write(message)
+    except Exception:
+        pass
+
+
+def send_tracking_payload(api_url, token, tenant, payload_bytes, timeout=5):
+    """POST raw JSON bytes to ``<api_url>/api/entities/tracking/records``.
+
+    Returns ``(status_code, body_text)``. Raises on network/HTTP errors so the
+    caller can log them through ``debug_log``.
+    """
+    req = urllib.request.Request(
+        f"{api_url}/api/entities/tracking/records",
+        data=payload_bytes,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "X-Tenant-ID": tenant,
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    resp = urllib.request.urlopen(req, timeout=timeout)
+    return resp.status, resp.read().decode()

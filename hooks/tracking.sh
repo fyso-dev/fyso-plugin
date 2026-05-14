@@ -16,7 +16,8 @@ cat > "$TMPFILE" 2>/dev/null || true
 
 EVENT_TYPE="${1:-session}"
 
-# Debug: save raw stdin for inspection
+# Debug: save raw stdin for inspection (mirrors _tracking_lib.is_debug/debug_log
+# but kept in bash so the cp + size measurement stay outside Python).
 if [ -f "$HOME/.fyso/debug" ]; then
   echo "=== $(date -u) === EVENT=$EVENT_TYPE ===" >> "$HOME/.fyso/hook-debug.log"
   cp "$TMPFILE" "$HOME/.fyso/last-hook-stdin-${EVENT_TYPE}.json" 2>/dev/null
@@ -27,24 +28,27 @@ fi
 # Single python call: read config + parse stdin + build payload + send
 export TMPFILE EVENT_TYPE PRICING_FILE FYSO_HOOKS_DIR="$SCRIPT_DIR"
 python3 << 'PYEOF'
-import json, re, datetime, os, sys, getpass, hashlib
-try:
-    import urllib.request
-except:
-    sys.exit(0)
+import json, datetime, os, sys, getpass, hashlib
 
-# Import shared tracking library (PRICING + infer_model_family + transcript parser)
+# Import shared tracking library (single source of truth for config/team/
+# transcript parsing/model family/HTTP send/debug logging).
 sys.path.insert(0, os.environ.get("FYSO_HOOKS_DIR", os.path.dirname(os.path.abspath(__file__))))
 try:
-    from _tracking_lib import load_pricing, infer_model_family, parse_transcript_usage
+    from _tracking_lib import (
+        load_pricing,
+        infer_model_family,
+        parse_transcript_usage,
+        summarize_transcript_lines,
+        load_config,
+        load_team_name,
+        debug_log,
+        send_tracking_payload,
+    )
 except Exception:
     sys.exit(0)
 
-config_path = os.path.expanduser("~/.fyso/config.json")
-try:
-    with open(config_path) as f:
-        cfg = json.load(f)
-except:
+cfg = load_config()
+if not cfg:
     sys.exit(0)
 
 token = cfg.get("token", "")
@@ -76,15 +80,8 @@ if tmpfile and os.path.exists(tmpfile):
             pass
 
 # Team info from local .fyso/team.json (per project directory)
-team_name = ""
 hook_cwd = hook.get("cwd", os.getcwd())
-try:
-    team_path = os.path.join(hook_cwd, ".fyso", "team.json")
-    if os.path.exists(team_path):
-        with open(team_path) as tf:
-            team_name = json.load(tf).get("team_name", "")
-except:
-    pass
+team_name = load_team_name(hook_cwd)
 
 event_type = os.environ.get("EVENT_TYPE", "session")
 
@@ -155,40 +152,24 @@ session_tokens = session_input + session_output + session_cache_creation + sessi
 if _t["model"]:
     model = _t["model"]
 _summary = ""
-_last_text = ""
 _tools_used = []
+_last_text = ""
 
-# Per-script summary pass (only for session_end/session_update) — distinct dedup
-# window and length thresholds vs heartbeat.sh, kept inline by design.
+# Per-script summary pass (only for session_end/session_update) — wider dedup
+# window (5) and stricter text threshold (10) than heartbeat.sh.
 if _needs_summary:
-    for raw_line in _t["lines"]:
-        try:
-            entry = json.loads(raw_line)
-        except:
-            continue
-        msg = entry.get("message", {})
-        if not isinstance(msg, dict):
-            continue
-        content = msg.get("content", [])
-        if isinstance(content, list):
-            for c in content:
-                if isinstance(c, dict):
-                    if c.get("type") == "tool_use":
-                        name = c.get("name", "")
-                        if name and name not in _tools_used[-5:]:
-                            _tools_used.append(name)
-                    if c.get("type") == "text" and msg.get("role") == "assistant":
-                        t = c.get("text", "").strip()
-                        if t and len(t) > 10:
-                            _last_text = t
+    _tools_used, _last_text = summarize_transcript_lines(
+        _t["lines"],
+        tools_dedup_window=5,
+        text_threshold=10,
+    )
 
-if transcript_path and os.path.exists(os.path.expanduser("~/.fyso/debug")):
-    log_path = os.path.expanduser("~/.fyso/hook-debug.log")
-    try:
-        with open(log_path, "a") as dl:
-            dl.write(f"TRANSCRIPT: path={transcript_path} lines={_t['line_count']} usage_entries={_t['usage_count']} model_entries={_t['model_count']} model={model} session_tokens={session_tokens}\n")
-    except Exception:
-        pass
+if transcript_path:
+    debug_log(
+        f"TRANSCRIPT: path={transcript_path} lines={_t['line_count']} "
+        f"usage_entries={_t['usage_count']} model_entries={_t['model_count']} "
+        f"model={model} session_tokens={session_tokens}\n"
+    )
 
 # Fallback: default to opus (Claude Code default model)
 if not model:
@@ -242,35 +223,13 @@ data = {
 data = {k: v for k, v in data.items() if v is not None}
 payload = json.dumps(data).encode()
 
-# Debug: log payload
-debug_path = os.path.expanduser("~/.fyso/debug")
-if os.path.exists(debug_path):
-    log_path = os.path.expanduser("~/.fyso/hook-debug.log")
-    with open(log_path, "a") as dl:
-        dl.write(f"PAYLOAD: {payload.decode()}\n")
+debug_log(f"PAYLOAD: {payload.decode()}\n")
 
-# Send
 try:
-    req = urllib.request.Request(
-        f"{api_url}/api/entities/tracking/records",
-        data=payload,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "X-Tenant-ID": tenant,
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
-    resp = urllib.request.urlopen(req, timeout=5)
-    resp_body = resp.read().decode()
-    if os.path.exists(debug_path):
-        with open(log_path, "a") as dl:
-            dl.write(f"RESPONSE: {resp.status} {resp_body[:200]}\n\n")
+    status, body = send_tracking_payload(api_url, token, tenant, payload)
+    debug_log(f"RESPONSE: {status} {body[:200]}\n\n")
 except Exception as e:
-    if os.path.exists(debug_path):
-        log_path = os.path.expanduser("~/.fyso/hook-debug.log")
-        with open(log_path, "a") as dl:
-            dl.write(f"ERROR: {e}\n\n")
+    debug_log(f"ERROR: {e}\n\n")
 PYEOF
 
 # Cleanup
