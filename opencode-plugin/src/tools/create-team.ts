@@ -61,19 +61,38 @@ export async function createTeam(
   }
 }
 
+export interface AssignAgentFailure {
+  agent_id: string
+  message: string
+}
+
+export interface AssignAgentsResult {
+  assigned: string[]
+  assigned_agent_ids: string[]
+  failed: AssignAgentFailure[]
+}
+
 export async function assignAgents(
   config: FysoConfig,
   teamId: string,
   agentIds: string[],
-): Promise<string[]> {
+): Promise<AssignAgentsResult> {
   const assigned: string[] = []
+  const assignedAgentIds: string[] = []
+  const failed: AssignAgentFailure[] = []
   for (const agentId of agentIds) {
-    const resp = (await apiRequest(config, "POST", "/api/entities/team_agents/records", {
-      team: teamId,
-      agent: agentId,
-    })) as { data?: { id?: string }; id?: string }
-    const id = resp?.data?.id ?? resp?.id
-    if (id) assigned.push(id)
+    try {
+      const resp = (await apiRequest(config, "POST", "/api/entities/team_agents/records", {
+        team: teamId,
+        agent: agentId,
+      })) as { data?: { id?: string }; id?: string }
+      const id = resp?.data?.id ?? resp?.id
+      if (id) assigned.push(id)
+      assignedAgentIds.push(agentId)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      failed.push({ agent_id: agentId, message })
+    }
   }
-  return assigned
+  return { assigned, assigned_agent_ids: assignedAgentIds, failed }
 }
