@@ -140,9 +140,16 @@ export const FysoPlugin: Plugin = async (ctx) => {
           })
 
           let assignedCount = 0
+          let failedLines: string[] = []
           if (args.agent_ids?.length) {
-            const assigned = await assignAgents(config, created.id, args.agent_ids)
-            assignedCount = assigned.length
+            const result = await assignAgents(config, created.id, args.agent_ids)
+            assignedCount = result.assigned_agent_ids.length
+            if (result.failed.length) {
+              failedLines = [
+                `Failed to assign ${result.failed.length} agent(s):`,
+                ...result.failed.map((f) => `- ${f.agent_id}: ${f.message}`),
+              ]
+            }
           }
 
           const summary = [
@@ -152,6 +159,7 @@ export const FysoPlugin: Plugin = async (ctx) => {
             assignedCount
               ? `Assigned ${assignedCount} agent(s) to the team.`
               : "No agents assigned yet -- use the Fyso dashboard or call this tool again with agent_ids.",
+            ...failedLines,
             "",
             "Run /fyso:sync-team (Claude Code) or the fyso-sync-team tool (OpenCode) to pull this team into the current project.",
           ]

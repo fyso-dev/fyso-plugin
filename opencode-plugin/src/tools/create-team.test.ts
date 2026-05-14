@@ -95,8 +95,10 @@ describe("assignAgents", () => {
       .mockResolvedValueOnce(mockJson({ data: { id: "ta_1" } }))
       .mockResolvedValueOnce(mockJson({ data: { id: "ta_2" } }))
 
-    const ids = await assignAgents(config, "team_1", ["agent_a", "agent_b"])
-    expect(ids).toEqual(["ta_1", "ta_2"])
+    const result = await assignAgents(config, "team_1", ["agent_a", "agent_b"])
+    expect(result.assigned).toEqual(["ta_1", "ta_2"])
+    expect(result.assigned_agent_ids).toEqual(["agent_a", "agent_b"])
+    expect(result.failed).toEqual([])
 
     const bodies = vi
       .mocked(globalThis.fetch)
@@ -105,5 +107,32 @@ describe("assignAgents", () => {
       { team: "team_1", agent: "agent_a" },
       { team: "team_1", agent: "agent_b" },
     ])
+  })
+
+  it("continues with the remaining agents when one assignment fails", async () => {
+    vi.mocked(globalThis.fetch)
+      .mockResolvedValueOnce(mockJson({ data: { id: "ta_1" } }))
+      .mockResolvedValueOnce(new Response("invalid agent", { status: 422 }))
+      .mockResolvedValueOnce(mockJson({ data: { id: "ta_3" } }))
+
+    const result = await assignAgents(config, "team_1", ["agent_a", "agent_bad", "agent_c"])
+
+    expect(vi.mocked(globalThis.fetch)).toHaveBeenCalledTimes(3)
+    expect(result.assigned).toEqual(["ta_1", "ta_3"])
+    expect(result.assigned_agent_ids).toEqual(["agent_a", "agent_c"])
+    expect(result.failed).toHaveLength(1)
+    expect(result.failed[0]!.agent_id).toBe("agent_bad")
+    expect(result.failed[0]!.message).toMatch(/422/)
+  })
+
+  it("returns all agents as failed when every assignment fails", async () => {
+    vi.mocked(globalThis.fetch)
+      .mockResolvedValueOnce(new Response("nope", { status: 500 }))
+      .mockResolvedValueOnce(new Response("nope", { status: 500 }))
+
+    const result = await assignAgents(config, "team_1", ["agent_a", "agent_b"])
+    expect(result.assigned).toEqual([])
+    expect(result.assigned_agent_ids).toEqual([])
+    expect(result.failed.map((f) => f.agent_id)).toEqual(["agent_a", "agent_b"])
   })
 })
