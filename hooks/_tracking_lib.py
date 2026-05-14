@@ -7,6 +7,10 @@ Single source of truth for:
 - infer_model_family(model)
 - calculate_cost(family, ...)
 - parse_transcript_usage(path) — JSONL session token accumulator.
+- load_config() — reads ~/.fyso/config.json.
+- filter_payload(dict) — drops None-valued keys.
+- debug_enabled() / debug_log(msg) — ~/.fyso/debug flag + hook-debug.log.
+- send_tracking_event(api_url, token, tenant, payload) — POST to records API.
 
 The PRICING source-of-truth file can be overridden via the PRICING_FILE
 environment variable; otherwise it resolves relative to this file.
@@ -134,3 +138,66 @@ def parse_transcript_usage(transcript_path, retain_lines=False):
     except Exception:
         pass
     return result
+
+
+_DEBUG_FLAG_PATH = os.path.expanduser("~/.fyso/debug")
+_DEBUG_LOG_PATH = os.path.expanduser("~/.fyso/hook-debug.log")
+_CONFIG_PATH = os.path.expanduser("~/.fyso/config.json")
+_TRACKING_ENDPOINT = "/api/entities/tracking/records"
+
+
+def load_config(path=None):
+    """Return parsed ``~/.fyso/config.json`` dict, or ``None`` on missing/invalid file."""
+    try:
+        with open(path or _CONFIG_PATH) as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def filter_payload(data):
+    """Drop keys whose value is ``None`` so the API receives only set fields."""
+    return {k: v for k, v in data.items() if v is not None}
+
+
+def debug_enabled():
+    """Return True when the user has touched ``~/.fyso/debug``."""
+    return os.path.exists(_DEBUG_FLAG_PATH)
+
+
+def debug_log(message):
+    """Append a line to ``~/.fyso/hook-debug.log`` iff debug is enabled.
+
+    Best-effort: silently swallows errors so debug logging never breaks a hook.
+    Caller is responsible for trailing newlines.
+    """
+    if not debug_enabled():
+        return
+    try:
+        with open(_DEBUG_LOG_PATH, "a") as dl:
+            dl.write(message)
+    except Exception:
+        pass
+
+
+def send_tracking_event(api_url, token, tenant, payload, timeout=5):
+    """POST ``payload`` (dict or bytes) to the tracking records endpoint.
+
+    Returns ``(status_code, response_body_text)``. Raises on network/HTTP errors
+    so the caller can decide whether to debug-log and swallow.
+    """
+    import urllib.request
+
+    body = json.dumps(payload).encode() if isinstance(payload, dict) else payload
+    req = urllib.request.Request(
+        f"{api_url.rstrip('/')}{_TRACKING_ENDPOINT}",
+        data=body,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "X-Tenant-ID": tenant,
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    resp = urllib.request.urlopen(req, timeout=timeout)
+    return resp.status, resp.read().decode()

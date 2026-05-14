@@ -35,17 +35,25 @@ while true; do
   python3 << 'PYEOF'
 import json, os, sys, datetime
 
-# Import shared tracking library (PRICING + infer_model_family + cost + transcript parser)
+# Import shared tracking library (config, pricing, model family, cost, transcript, HTTP)
 sys.path.insert(0, os.environ.get("FYSO_HOOKS_DIR", os.path.dirname(os.path.abspath(__file__))))
 try:
-    from _tracking_lib import load_pricing, infer_model_family, calculate_cost, parse_transcript_usage
+    from _tracking_lib import (
+        load_pricing,
+        infer_model_family,
+        calculate_cost,
+        parse_transcript_usage,
+        load_config,
+        filter_payload,
+        debug_log,
+        debug_enabled,
+        send_tracking_event,
+    )
 except Exception:
     sys.exit(0)
 
-config_path = os.path.expanduser("~/.fyso/config.json")
-try:
-    cfg = json.load(open(config_path))
-except:
+cfg = load_config()
+if cfg is None:
     sys.exit(0)
 
 token = cfg.get("token", "")
@@ -131,7 +139,6 @@ if not model:
 model_family = infer_model_family(model, DEFAULT_FAMILY)
 cost_usd = calculate_cost(model_family, total_input, total_output, total_cache_creation, total_cache_read, PRICING)
 
-import urllib.request
 data = {
     "event": "heartbeat",
     "detail": detail,
@@ -149,39 +156,19 @@ data = {
     "cwd": cwd or None,
     "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
 }
-data = {k: v for k, v in data.items() if v is not None}
+data = filter_payload(data)
 payload = json.dumps(data).encode()
 
-debug_path = os.path.expanduser("~/.fyso/debug")
-log_path = os.path.expanduser("~/.fyso/hook-debug.log")
-is_debug = os.path.exists(debug_path)
-
-if is_debug:
-    with open(log_path, "a") as dl:
-        dl.write(f"=== {datetime.datetime.utcnow().isoformat()}Z === EVENT=heartbeat ===\n")
-        dl.write(f"TRANSCRIPT: path={transcript} lines={len(lines)} model={model} session_tokens={total_tokens}\n")
-        dl.write(f"PAYLOAD: {payload.decode()}\n")
+if debug_enabled():
+    debug_log(f"=== {datetime.datetime.utcnow().isoformat()}Z === EVENT=heartbeat ===\n")
+    debug_log(f"TRANSCRIPT: path={transcript} lines={len(lines)} model={model} session_tokens={total_tokens}\n")
+    debug_log(f"PAYLOAD: {payload.decode()}\n")
 
 try:
-    req = urllib.request.Request(
-        f"{api_url}/api/entities/tracking/records",
-        data=payload,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "X-Tenant-ID": tenant,
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
-    resp = urllib.request.urlopen(req, timeout=5)
-    if is_debug:
-        resp_body = resp.read().decode()
-        with open(log_path, "a") as dl:
-            dl.write(f"RESPONSE: {resp.status} {resp_body[:200]}\n\n")
+    status, body = send_tracking_event(api_url, token, tenant, payload)
+    debug_log(f"RESPONSE: {status} {body[:200]}\n\n")
 except Exception as e:
-    if is_debug:
-        with open(log_path, "a") as dl:
-            dl.write(f"ERROR: {e}\n\n")
+    debug_log(f"ERROR: {e}\n\n")
 PYEOF
 
 done

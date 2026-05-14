@@ -28,23 +28,24 @@ fi
 export TMPFILE EVENT_TYPE PRICING_FILE FYSO_HOOKS_DIR="$SCRIPT_DIR"
 python3 << 'PYEOF'
 import json, re, datetime, os, sys, getpass, hashlib
-try:
-    import urllib.request
-except:
-    sys.exit(0)
 
-# Import shared tracking library (PRICING + infer_model_family + transcript parser)
+# Import shared tracking library (config, pricing, model family, transcript, HTTP)
 sys.path.insert(0, os.environ.get("FYSO_HOOKS_DIR", os.path.dirname(os.path.abspath(__file__))))
 try:
-    from _tracking_lib import load_pricing, infer_model_family, parse_transcript_usage
+    from _tracking_lib import (
+        load_pricing,
+        infer_model_family,
+        parse_transcript_usage,
+        load_config,
+        filter_payload,
+        debug_log,
+        send_tracking_event,
+    )
 except Exception:
     sys.exit(0)
 
-config_path = os.path.expanduser("~/.fyso/config.json")
-try:
-    with open(config_path) as f:
-        cfg = json.load(f)
-except:
+cfg = load_config()
+if cfg is None:
     sys.exit(0)
 
 token = cfg.get("token", "")
@@ -182,13 +183,8 @@ if _needs_summary:
                         if t and len(t) > 10:
                             _last_text = t
 
-if transcript_path and os.path.exists(os.path.expanduser("~/.fyso/debug")):
-    log_path = os.path.expanduser("~/.fyso/hook-debug.log")
-    try:
-        with open(log_path, "a") as dl:
-            dl.write(f"TRANSCRIPT: path={transcript_path} lines={_t['line_count']} usage_entries={_t['usage_count']} model_entries={_t['model_count']} model={model} session_tokens={session_tokens}\n")
-    except Exception:
-        pass
+if transcript_path:
+    debug_log(f"TRANSCRIPT: path={transcript_path} lines={_t['line_count']} usage_entries={_t['usage_count']} model_entries={_t['model_count']} model={model} session_tokens={session_tokens}\n")
 
 # Fallback: default to opus (Claude Code default model)
 if not model:
@@ -239,38 +235,16 @@ data = {
     "cwd": hook.get("cwd", os.getcwd()) or None,
     "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
 }
-data = {k: v for k, v in data.items() if v is not None}
+data = filter_payload(data)
 payload = json.dumps(data).encode()
 
-# Debug: log payload
-debug_path = os.path.expanduser("~/.fyso/debug")
-if os.path.exists(debug_path):
-    log_path = os.path.expanduser("~/.fyso/hook-debug.log")
-    with open(log_path, "a") as dl:
-        dl.write(f"PAYLOAD: {payload.decode()}\n")
+debug_log(f"PAYLOAD: {payload.decode()}\n")
 
-# Send
 try:
-    req = urllib.request.Request(
-        f"{api_url}/api/entities/tracking/records",
-        data=payload,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "X-Tenant-ID": tenant,
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
-    resp = urllib.request.urlopen(req, timeout=5)
-    resp_body = resp.read().decode()
-    if os.path.exists(debug_path):
-        with open(log_path, "a") as dl:
-            dl.write(f"RESPONSE: {resp.status} {resp_body[:200]}\n\n")
+    status, body = send_tracking_event(api_url, token, tenant, payload)
+    debug_log(f"RESPONSE: {status} {body[:200]}\n\n")
 except Exception as e:
-    if os.path.exists(debug_path):
-        log_path = os.path.expanduser("~/.fyso/hook-debug.log")
-        with open(log_path, "a") as dl:
-            dl.write(f"ERROR: {e}\n\n")
+    debug_log(f"ERROR: {e}\n\n")
 PYEOF
 
 # Cleanup
