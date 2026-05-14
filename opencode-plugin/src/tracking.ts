@@ -1,9 +1,25 @@
-import { readConfig, readTeamConfig, apiRequest, debugLog } from "./config"
+import {
+  readConfig,
+  readTeamConfig,
+  apiRequest,
+  debugLog,
+  type FysoConfig,
+  type TeamConfig,
+} from "./config"
 import { createHash } from "crypto"
 import { userInfo } from "os"
 import { readFileSync } from "fs"
 import { fileURLToPath } from "url"
 import { dirname, join } from "path"
+
+async function loadContext(
+  directory?: string,
+): Promise<{ config: FysoConfig; team: TeamConfig | null } | null> {
+  const config = await readConfig()
+  if (!config) return null
+  const team = await readTeamConfig(directory || process.cwd())
+  return { config, team }
+}
 
 const pricingData = JSON.parse(
   readFileSync(join(dirname(fileURLToPath(import.meta.url)), "pricing.json"), "utf8"),
@@ -109,9 +125,9 @@ export function createTracker() {
 
   return {
     async sessionStart(ctx: { sessionID?: string; directory?: string }) {
-      const config = await readConfig()
-      if (!config) return
-      const team = await readTeamConfig(ctx.directory || process.cwd())
+      const loaded = await loadContext(ctx.directory)
+      if (!loaded) return
+      const { config, team } = loaded
       const sessionId =
         ctx.sessionID ||
         createHash("md5")
@@ -142,9 +158,9 @@ export function createTracker() {
       cache_creation_tokens?: number
       cache_read_tokens?: number
     }) {
-      const config = await readConfig()
-      if (!config) return
-      const team = await readTeamConfig(ctx.directory || process.cwd())
+      const loaded = await loadContext(ctx.directory)
+      if (!loaded) return
+      const { config, team } = loaded
 
       const inputTokens = ctx.input_tokens || 0
       const outputTokens = ctx.output_tokens || 0
@@ -185,9 +201,9 @@ export function createTracker() {
     },
 
     async sessionEnd(ctx: { sessionID?: string; directory?: string }) {
-      const config = await readConfig()
-      if (!config) return
-      const team = await readTeamConfig(ctx.directory || process.cwd())
+      const loaded = await loadContext(ctx.directory)
+      if (!loaded) return
+      const { config, team } = loaded
       const model = lastModel || "claude-opus-4-6"
       const family = inferModelFamily(model)
       const totalTokens = totalSessionTokens(sessionTokens)
@@ -222,9 +238,9 @@ export function createTracker() {
     },
 
     async heartbeat(ctx: { sessionID?: string; directory?: string; detail?: string }) {
-      const config = await readConfig()
-      if (!config) return
-      const team = await readTeamConfig(ctx.directory || process.cwd())
+      const loaded = await loadContext(ctx.directory)
+      if (!loaded) return
+      const { config, team } = loaded
       const model = lastModel || "claude-opus-4-6"
       const family = inferModelFamily(model)
       const totalTokens = totalSessionTokens(sessionTokens)
