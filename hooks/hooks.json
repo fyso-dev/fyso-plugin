@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if echo \"$CLAUDE_TOOL_INPUT\" | grep -q 'skills.*reference.*\\.md'; then bun \"${CLAUDE_PLUGIN_ROOT}/bin/sync-reference.ts\" 2>/dev/null; fi",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/sync-reference-trigger.sh",
             "timeout": 10000
           }
         ]
