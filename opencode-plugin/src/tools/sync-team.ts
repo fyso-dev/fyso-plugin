@@ -1,7 +1,7 @@
 import { readConfig, readTeamConfig, apiRequest } from "../config"
 import { readFile, writeFile, mkdir, rm } from "fs/promises"
 import { existsSync } from "fs"
-import { join } from "path"
+import { basename, join, resolve, sep } from "path"
 
 interface Agent {
   name: string
@@ -20,6 +20,43 @@ const ROLE_COLORS: Record<string, string> = {
   writer: "cyan",
   security: "red",
   triage: "orange",
+}
+
+const SAFE_AGENT_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/
+
+export function isSafeAgentName(name: string): boolean {
+  return typeof name === "string" && SAFE_AGENT_NAME_RE.test(name)
+}
+
+export function resolveAgentFilePath(dir: string, name: string): string | null {
+  if (!isSafeAgentName(name)) return null
+  // Defense-in-depth: strip any directory component the regex might have missed
+  // and require the basename to round-trip identically.
+  const safe = basename(name)
+  if (safe !== name) return null
+  const filePath = join(dir, `${safe}.md`)
+  const dirResolved = resolve(dir) + sep
+  const fileResolved = resolve(filePath)
+  if (!fileResolved.startsWith(dirResolved)) return null
+  return filePath
+}
+
+// YAML double-quoted scalar with escaping. Safe against newline / quote / colon
+// injection, so untrusted strings cannot inject extra frontmatter fields.
+export function yamlString(value: string): string {
+  const escaped = String(value)
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\r/g, "\\r")
+    .replace(/\n/g, "\\n")
+    .replace(/\t/g, "\\t")
+  return `"${escaped}"`
+}
+
+// Defensive: prevent untrusted body content from containing a line that is
+// exactly `---`, which a lenient parser could mistake for a frontmatter fence.
+export function sanitizeMarkdownBody(value: string): string {
+  return String(value).replace(/^---\s*$/gm, "\u200B---")
 }
 
 function getColor(role: string): string {
@@ -89,6 +126,87 @@ export async function fetchTeamAgents(
     }))
 }
 
+interface SafeAgentFields {
+  name: string
+  display: string
+  role: string
+  soul: string
+  systemPrompt: string
+  color: string
+}
+
+function sanitizeAgent(agent: Agent): SafeAgentFields {
+  return {
+    name: agent.name,
+    display: sanitizeMarkdownBody(agent.display_name),
+    role: sanitizeMarkdownBody(agent.role),
+    soul: sanitizeMarkdownBody(agent.soul),
+    systemPrompt: sanitizeMarkdownBody(agent.system_prompt),
+    color: getColor(agent.role),
+  }
+}
+
+function renderClaudeAgent(agent: Agent, safe: SafeAgentFields): string {
+  const firstLine = firstLineOf(agent.soul, agent.display_name)
+  const description = `${agent.role} -- ${agent.display_name}. ${firstLine}`
+  return `---
+name: ${yamlString(agent.name)}
+description: ${yamlString(description)}
+tools: Read, Write, Edit, Bash, Grep, Glob
+color: ${yamlString(safe.color)}
+---
+
+# ${safe.display}
+
+**Role:** ${safe.role}
+
+## Soul
+${safe.soul}
+
+## System Prompt
+${safe.systemPrompt}
+`
+}
+
+function renderOpencodeAgent(agent: Agent, safe: SafeAgentFields): string {
+  const description = `${agent.role} -- ${agent.display_name}`
+  return `---
+description: ${yamlString(description)}
+mode: subagent
+color: ${yamlString(safe.color)}
+---
+
+# ${safe.display}
+
+You are **${safe.display}**, a specialized agent with the role of **${safe.role}**.
+
+## Soul
+${safe.soul}
+
+## System Prompt
+${safe.systemPrompt}
+`
+}
+
+async function writeAgentsTo(
+  agents: Agent[],
+  dir: string,
+  render: (agent: Agent, safe: SafeAgentFields) => string,
+  created: string[],
+): Promise<void> {
+  await mkdir(dir, { recursive: true })
+  for (const agent of agents) {
+    const filePath = resolveAgentFilePath(dir, agent.name)
+    if (!filePath) {
+      console.warn(`[fyso] skipping agent with unsafe name: ${JSON.stringify(agent.name)}`)
+      continue
+    }
+    if (existsSync(filePath)) await rm(filePath)
+    await writeFile(filePath, render(agent, sanitizeAgent(agent)))
+    created.push(filePath)
+  }
+}
+
 export async function syncAgentsToDirectory(
   agents: Agent[],
   cwd: string,
@@ -96,65 +214,9 @@ export async function syncAgentsToDirectory(
 ): Promise<string[]> {
   const created: string[] = []
 
-  // Claude Code agents (.claude/agents/)
-  const claudeDir = join(cwd, ".claude", "agents")
-  await mkdir(claudeDir, { recursive: true })
+  await writeAgentsTo(agents, join(cwd, ".claude", "agents"), renderClaudeAgent, created)
+  await writeAgentsTo(agents, join(cwd, ".opencode", "agents"), renderOpencodeAgent, created)
 
-  for (const agent of agents) {
-    const filePath = join(claudeDir, `${agent.name}.md`)
-    if (existsSync(filePath)) await rm(filePath)
-    const color = getColor(agent.role)
-    const firstLine = firstLineOf(agent.soul, agent.display_name)
-    const content = `---
-name: ${agent.name}
-description: ${agent.role} -- ${agent.display_name}. ${firstLine}
-tools: Read, Write, Edit, Bash, Grep, Glob
-color: ${color}
----
-
-# ${agent.display_name}
-
-**Role:** ${agent.role}
-
-## Soul
-${agent.soul}
-
-## System Prompt
-${agent.system_prompt}
-`
-    await writeFile(filePath, content)
-    created.push(filePath)
-  }
-
-  // OpenCode agents (.opencode/agents/)
-  const opencodeDir = join(cwd, ".opencode", "agents")
-  await mkdir(opencodeDir, { recursive: true })
-
-  for (const agent of agents) {
-    const filePath = join(opencodeDir, `${agent.name}.md`)
-    if (existsSync(filePath)) await rm(filePath)
-    const color = getColor(agent.role)
-    const content = `---
-description: "${agent.role} -- ${agent.display_name}"
-mode: subagent
-color: "${color}"
----
-
-# ${agent.display_name}
-
-You are **${agent.display_name}**, a specialized agent with the role of **${agent.role}**.
-
-## Soul
-${agent.soul}
-
-## System Prompt
-${agent.system_prompt}
-`
-    await writeFile(filePath, content)
-    created.push(filePath)
-  }
-
-  // Team prompt
   if (teamPrompt) {
     const claudeMd = join(cwd, ".claude", "CLAUDE.md")
     await mkdir(join(cwd, ".claude"), { recursive: true })
